@@ -1,0 +1,79 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build"
+    },
+    {
+      "name": "dev",
+      "displayName": "Debug",
+      "inherits": [
+        "base"
+      ],
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-O0",
+        "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "OFF"
+      }
+    },
+    {
+      "name": "reldeb",
+      "displayName": "Release with Debug Info",
+      "inherits": [
+        "base"
+      ],
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_CXX_FLAGS": "-O2",
+        "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "OFF"
+      }
+    },
+    {
+      "name": "rel",
+      "displayName": "Release",
+      "inherits": [
+        "base"
+      ],
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_FLAGS": "-O3",
+        "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "dev",
+      "displayName": "Debug",
+      "configuration": "Debug",
+      "configurePreset": "dev",
+      "verbose": true,
+      "targets": [
+        "modern-renderer"
+      ]
+    },
+    {
+      "name": "reldeb",
+      "displayName": "Release with Debug Info",
+      "configuration": "RelWithDebInfo",
+      "configurePreset": "reldeb",
+      "verbose": true,
+      "targets": [
+        "modern-renderer"
+      ]
+    },
+    {
+      "name": "rel",
+      "displayName": "Release",
+      "configuration": "Release",
+      "configurePreset": "rel",
+      "verbose": true,
+      "targets": [
+        "modern-renderer"
+      ]
+    }
+  ]
+}
