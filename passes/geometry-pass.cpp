@@ -104,9 +104,11 @@ GeometryPass createGeometryPass(svet::renderer::LContext context,
     pipelineSpec.enableDepthWrite = true;
     pipelineSpec.frontFaceWind = FrontFaceWind::COUNTER_CLOCKWISE;
     pipelineSpec.faceCulling = FaceCulling::BACK;
+    pipelineSpec.multiSampleCount = 1;
     pipelineSpec.vertexShader = vertexShader;
     pipelineSpec.fragmentShader = fragmentShader;
     pipelineSpec.pipelineLayout = pass.pipelineLayout;
+    pipelineSpec.enableAlphaToCoverage = false;
     pass.pipeline = createGraphicsPipeline(context, pipelineSpec);
   }
 

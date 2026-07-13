@@ -66,11 +66,13 @@ struct GraphicsPipelineSpecification {
   const PixelFormat *depthPixelFormat;
   FrontFaceWind frontFaceWind;
   FaceCulling faceCulling;
+  uint32_t multiSampleCount;
   float depthMin;
   float depthMax;
   bool flipViewportY;
   bool enableDepthTest;
   bool enableDepthWrite;
+  bool enableAlphaToCoverage;
 };
 Pipeline createGraphicsPipeline(LContext context,
                                 const GraphicsPipelineSpecification &spec);

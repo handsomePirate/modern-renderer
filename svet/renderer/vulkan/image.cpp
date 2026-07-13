@@ -41,7 +41,7 @@ Image createImage(LContext context, const ImageSpecification &spec) {
   imageInfo.tiling = getImageTiling(spec.tiling);
   imageInfo.initialLayout = getImageLayout(spec.initialLayout);
   imageInfo.usage = getImageUsage(spec.usage);
-  imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+  imageInfo.samples = (VkSampleCountFlagBits)spec.sampleCount;
   imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
   auto result =

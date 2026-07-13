@@ -235,7 +235,10 @@ Pipeline createGraphicsPipeline(LContext context,
   multisampleInfo.sType =
       VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
   multisampleInfo.sampleShadingEnable = VK_FALSE;
-  multisampleInfo.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+  multisampleInfo.rasterizationSamples =
+      (VkSampleCountFlagBits)spec.multiSampleCount;
+  multisampleInfo.alphaToCoverageEnable =
+      spec.enableAlphaToCoverage ? VK_TRUE : VK_FALSE;
 
   //
   // DEPTH & STENCIL

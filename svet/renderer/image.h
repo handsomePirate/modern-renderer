@@ -16,6 +16,7 @@ struct ImageMetadata {
 struct ImageSpecification {
   uint32_t width;
   uint32_t height;
+  uint32_t sampleCount = 1;
   PixelFormat pixelFormat;
   ImageUsage usage;
   ImageTiling tiling;

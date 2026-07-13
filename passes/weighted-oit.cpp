@@ -28,6 +28,7 @@ WeightedOITPass createWeightedOITPass(svet::renderer::LContext context,
     graphicsRenderTargetSpec.height = spec.height;
     graphicsRenderTargetSpec.memoryPool = spec.targetImagePool;
     graphicsRenderTargetSpec.pixelFormat = spec.accumulatorFormat;
+    graphicsRenderTargetSpec.sampleCount = 1;
     graphicsRenderTargetSpec.usage = ImageUsage::TRANSFER_SRC |
                                      ImageUsage::SAMPLED |
                                      ImageUsage::RENDER_TARGET_COLOR;
@@ -163,9 +164,11 @@ WeightedOITPass createWeightedOITPass(svet::renderer::LContext context,
     pipelineSpec.enableDepthWrite = false;
     pipelineSpec.frontFaceWind = FrontFaceWind::COUNTER_CLOCKWISE;
     pipelineSpec.faceCulling = FaceCulling::BACK;
+    pipelineSpec.multiSampleCount = 1;
     pipelineSpec.vertexShader = vertexShader;
     pipelineSpec.fragmentShader = fragmentShader;
     pipelineSpec.pipelineLayout = pass.graphicsPipelineLayout;
+    pipelineSpec.enableAlphaToCoverage = false;
     pass.graphicsPipeline = createGraphicsPipeline(context, pipelineSpec);
   }
 

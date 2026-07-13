@@ -66,9 +66,11 @@ ShadowPass createShadowPass(svet::renderer::LContext context,
     pipelineSpec.frontFaceWind = FrontFaceWind::CLOCKWISE;
     // Only back faces cast shadows to prevent shadow acne
     pipelineSpec.faceCulling = FaceCulling::FRONT;
+    pipelineSpec.multiSampleCount = 1;
     pipelineSpec.vertexShader = vertexShader;
     pipelineSpec.fragmentShader = fragmentShader;
     pipelineSpec.pipelineLayout = pass.pipelineLayout;
+    pipelineSpec.enableAlphaToCoverage = false;
     pass.pipeline = createGraphicsPipeline(context, pipelineSpec);
   }
 
