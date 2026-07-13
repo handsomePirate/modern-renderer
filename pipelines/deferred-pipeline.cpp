@@ -46,8 +46,8 @@ createDeferredPipeline(svet::renderer::LContext context,
   pipeline.shadingPass =
       createDeferredShadingPass(context, deferredShadingPassSpec);
 
-  // TODO: This is more general than it needs to be. If we only have binary
-  // alpha blends, we can use a cheaper alpha-to-coverage
+  // We use alpha clipping instead of the complex and weird weighted OIT
+  /*
   WeightedOITSpecification weightedOITPassSpec{};
   weightedOITPassSpec.width = spec.width;
   weightedOITPassSpec.height = spec.height;
@@ -77,14 +77,17 @@ createDeferredPipeline(svet::renderer::LContext context,
   overlayPassSpec.foreground = pipeline.weightedOITPass.resolve;
   overlayPassSpec.compFile = "./shaders/overlay.comp.spv";
   pipeline.overlayPass = createOverlayPass(context, overlayPassSpec);
+  */
 
   return pipeline;
 }
 
 void destroyDeferredPipeline(svet::renderer::LContext context,
                              DeferredPipeline &pipeline) {
-  destroyOverlayPass(context, pipeline.overlayPass);
-  destroyWeightedOITPass(context, pipeline.weightedOITPass);
+  /*
+destroyOverlayPass(context, pipeline.overlayPass);
+destroyWeightedOITPass(context, pipeline.weightedOITPass);
+*/
   destroyDeferredShadingPass(context, pipeline.shadingPass);
   destroyDeferredBasePass(context, pipeline.basePass);
   destroyShadowPass(context, pipeline.shadowPass);
@@ -135,6 +138,8 @@ void deferredPipelineDrawFrame(FrameData &frame, DeferredPipeline &pipeline,
 
   recordDeferredShadingPass(frame, pipeline.shadingPass, scene);
 
+  // We use alpha clipping instead of the complex and weird weighted OIT
+  /*
   cmdImageBarrier(frame.context, frame.drawProcessor,
                   pipeline.basePass.gBuffer[4], shaderReadMeta,
                   renderTargetDepthMeta);
@@ -151,9 +156,10 @@ void deferredPipelineDrawFrame(FrameData &frame, DeferredPipeline &pipeline,
   }
 
   recordOverlayPass(frame, pipeline.overlayPass, scene);
+  */
 
   submitDrawProcessor(frame.context, frame.drawProcessor);
 
-  result = pipeline.overlayPass.target;
+  result = pipeline.shadingPass.target;
   resultMeta = computeTargetMeta;
 }

@@ -269,9 +269,11 @@ void recordDeferredBasePass(FrameData &frame, const DeferredBasePass &pass,
       }
 
       const SceneMaterial &material = scene.materials[m.material];
-      if (material.renderFlags & (OITMatFlag | ODTMatFlag)) {
-        return false;
-      }
+      // The deferred base is able to alpha clip, it is better to use that than
+      // OIT
+      // if (material.renderFlags & (OITMatFlag | ODTMatFlag)) {
+      //   return false;
+      // }
       uint32_t albedoIndex = UINT32_MAX;
       uint32_t normalIndex = UINT32_MAX;
       uint32_t metalroughIndex = UINT32_MAX;

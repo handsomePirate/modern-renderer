@@ -64,6 +64,9 @@ FragmentData vertexMain(VertexData in: VertexIn)
 PixelData fragmentMain(FragmentData in)
 {
     float4 albedoSample = albedoSampler.Sample(in.texCoord);
+    if (albedoSample.a < 0.5f)
+        discard;
+
     float4 metalroughSample = metalroughSampler.Sample(in.texCoord);
     float3 normalSample = normalSampler.Sample(in.texCoord).xyz;
 
