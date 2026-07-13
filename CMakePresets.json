@@ -5,14 +5,23 @@
       "name": "base",
       "hidden": true,
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build"
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "ASAN": "0"
+      }
     },
     {
-      "name": "dev",
-      "displayName": "Debug",
-      "inherits": [
-        "base"
-      ],
+      "name": "base-asan",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "ASAN": "1"
+      }
+    },
+    {
+      "name": "base-dev",
+      "hidden": true,
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_CXX_FLAGS": "-O0",
@@ -20,11 +29,8 @@
       }
     },
     {
-      "name": "reldeb",
-      "displayName": "Release with Debug Info",
-      "inherits": [
-        "base"
-      ],
+      "name": "base-reldeb",
+      "hidden": true,
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_CXX_FLAGS": "-O2",
@@ -32,47 +38,140 @@
       }
     },
     {
-      "name": "rel",
-      "displayName": "Release",
-      "inherits": [
-        "base"
-      ],
+      "name": "base-rel",
+      "hidden": true,
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_CXX_FLAGS": "-O3",
         "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "ON"
       }
-    }
-  ],
-  "buildPresets": [
+    },
     {
       "name": "dev",
       "displayName": "Debug",
-      "configuration": "Debug",
-      "configurePreset": "dev",
-      "verbose": true,
-      "targets": [
-        "modern-renderer"
+      "inherits": [
+        "base",
+        "base-dev"
+      ]
+    },
+    {
+      "name": "dev-asan",
+      "displayName": "Debug ASan",
+      "inherits": [
+        "base-asan",
+        "base-dev"
       ]
     },
     {
       "name": "reldeb",
       "displayName": "Release with Debug Info",
-      "configuration": "RelWithDebInfo",
-      "configurePreset": "reldeb",
-      "verbose": true,
-      "targets": [
-        "modern-renderer"
+      "inherits": [
+        "base",
+        "base-reldeb"
+      ]
+    },
+    {
+      "name": "reldeb-asan",
+      "displayName": "Release with Debug Info ASan",
+      "inherits": [
+        "base-asan",
+        "base-reldeb"
       ]
     },
     {
       "name": "rel",
       "displayName": "Release",
-      "configuration": "Release",
-      "configurePreset": "rel",
+      "inherits": [
+        "base",
+        "base-rel"
+      ]
+    },
+    {
+      "name": "rel-asan",
+      "displayName": "Release ASan",
+      "inherits": [
+        "base-asan",
+        "base-rel"
+      ]
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "base-dev",
+      "configuration": "Debug",
       "verbose": true,
+      "hidden": true,
       "targets": [
-        "modern-renderer"
+        "renderer",
+        "renderer-exe"
+      ]
+    },
+    {
+      "name": "base-reldeb",
+      "configuration": "RelWithDebInfo",
+      "verbose": true,
+      "hidden": true,
+      "targets": [
+        "renderer",
+        "renderer-exe"
+      ]
+    },
+    {
+      "name": "base-rel",
+      "configuration": "Release",
+      "verbose": true,
+      "hidden": true,
+      "targets": [
+        "renderer",
+        "renderer-exe"
+      ]
+    },
+    {
+      "name": "dev",
+      "displayName": "Debug",
+      "configurePreset": "dev",
+      "inherits": [
+        "base-dev"
+      ]
+    },
+    {
+      "name": "dev-asan",
+      "displayName": "Debug ASan",
+      "configurePreset": "dev-asan",
+      "inherits": [
+        "base-dev"
+      ]
+    },
+    {
+      "name": "reldeb",
+      "displayName": "Release with Debug Info",
+      "configurePreset": "reldeb",
+      "inherits": [
+        "base-reldeb"
+      ]
+    },
+    {
+      "name": "reldeb-asan",
+      "displayName": "Release with Debug Info ASan",
+      "configurePreset": "reldeb-asan",
+      "inherits": [
+        "base-reldeb"
+      ]
+    },
+    {
+      "name": "rel",
+      "displayName": "Release",
+      "configurePreset": "rel",
+      "inherits": [
+        "base-rel"
+      ]
+    },
+    {
+      "name": "rel-asan",
+      "displayName": "Release ASan",
+      "configurePreset": "rel-asan",
+      "inherits": [
+        "base-rel"
       ]
     }
   ]

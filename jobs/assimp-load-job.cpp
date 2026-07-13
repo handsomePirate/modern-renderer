@@ -7,6 +7,9 @@
 #include <stb/stb_image.h>
 
 #include <filesystem>
+#include <print>
+
+using namespace svet::renderer;
 
 namespace {
 
@@ -23,44 +26,37 @@ uint32_t getAttributeAlignment(uint32_t elementSize) {
 }
 
 void determineSingleAttributeSizes(uint32_t elementSize, uint32_t elementCount,
-                                   uint32_t &totalSize, uint32_t &largestSize) {
+                                   uint32_t &totalSize) {
   uint32_t size = elementSize * elementCount;
   uint32_t alignment = getAttributeAlignment(elementSize);
   totalSize = alignUp(totalSize, alignment);
 
   totalSize += size;
-  largestSize = std::max(largestSize, size);
 }
 
-void determineBufferSizes(const aiScene *scene, uint32_t &totalSize,
-                          uint32_t &largestSize) {
+void determineBufferSize(const aiScene *scene, uint32_t &totalSize) {
   totalSize = 0;
-  largestSize = 0;
   for (int i = 0; i < scene->mNumMeshes; ++i) {
     aiMesh *mesh = scene->mMeshes[i];
     uint32_t vertexCount = mesh->mNumVertices;
     uint32_t indexCount = mesh->mNumFaces * 3;
     if (mesh->HasPositions()) {
-      determineSingleAttributeSizes(3 * sizeof(float), vertexCount, totalSize,
-                                    largestSize);
+      determineSingleAttributeSizes(3 * sizeof(float), vertexCount, totalSize);
     }
     if (mesh->HasNormals()) {
-      determineSingleAttributeSizes(3 * sizeof(float), vertexCount, totalSize,
-                                    largestSize);
+      determineSingleAttributeSizes(3 * sizeof(float), vertexCount, totalSize);
     }
     if (mesh->mTangents) {
-      determineSingleAttributeSizes(3 * sizeof(float), vertexCount, totalSize,
-                                    largestSize);
+      determineSingleAttributeSizes(3 * sizeof(float), vertexCount, totalSize);
     }
     for (int j = 0; j < 8; ++j) {
       if (mesh->HasTextureCoords(j)) {
-        determineSingleAttributeSizes(2 * sizeof(float), vertexCount, totalSize,
-                                      largestSize);
+        determineSingleAttributeSizes(2 * sizeof(float), vertexCount,
+                                      totalSize);
       }
     }
     if (mesh->HasFaces()) {
-      determineSingleAttributeSizes(sizeof(uint32_t), indexCount, totalSize,
-                                    largestSize);
+      determineSingleAttributeSizes(sizeof(uint32_t), indexCount, totalSize);
     }
 
     // TODO: bones indexes and weights
@@ -68,28 +64,25 @@ void determineBufferSizes(const aiScene *scene, uint32_t &totalSize,
 }
 
 void uploadMeshData(LContext context, uint32_t elementSize,
-                    uint32_t elementCount, Buffer stagingBuffer, Buffer buffer,
-                    uint32_t attributeSignature, void *data,
+                    uint32_t elementCount, StagingBuffer stagingBuffer,
+                    Buffer buffer, uint32_t attributeSignature, void *data,
                     uint32_t bufferIndex, uint32_t &bufferOffset,
                     SceneMesh &result) {
   uint32_t size = elementSize * elementCount;
   uint32_t alignment = getAttributeAlignment(elementSize);
   bufferOffset = alignUp(bufferOffset, alignment);
 
-  uploadBufferData(context, stagingBuffer, data, 0, size);
-  BufferCopySpecification copySpec{};
-  copySpec.size = size;
-  copySpec.source = stagingBuffer;
-  copySpec.sourceMeta.stage = PipelineStage::TRANSFER;
-  copySpec.sourceMeta.access = ResourceAccess::TRANSFER_READ;
-  copySpec.sourceMeta.ownership = QueueOwnership::TRANSFER;
-  copySpec.sourceOffset = 0;
-  copySpec.destination = buffer;
-  copySpec.destinationMeta.stage = PipelineStage::TRANSFER;
-  copySpec.destinationMeta.access = ResourceAccess::TRANSFER_WRITE;
-  copySpec.destinationMeta.ownership = QueueOwnership::TRANSFER;
-  copySpec.destinationOffset = bufferOffset;
-  copyBufferData(context, copySpec);
+  StagedUploadSpecification stagedUploadSpec{};
+  stagedUploadSpec.data = data;
+  stagedUploadSpec.offset = bufferOffset;
+  stagedUploadSpec.size = size;
+  stagedUploadSpec.stagingBuffer = stagingBuffer;
+  stagedUploadSpec.destination = buffer;
+  stagedUploadSpec.destinationMeta.stage = PipelineStage::TRANSFER;
+  stagedUploadSpec.destinationMeta.access = ResourceAccess::TRANSFER_WRITE;
+  stagedUploadSpec.destinationMeta.ownership = QueueOwnershipState::TRANSFER;
+  stagedUploadSpec.desiredOwnership = QueueOwnership::TRANSFER;
+  stagedUploadData(context, stagedUploadSpec);
 
   SceneVertexAttribute attr;
   attr.signature = attributeSignature;
@@ -102,7 +95,7 @@ void uploadMeshData(LContext context, uint32_t elementSize,
 }
 
 void loadMesh(LContext context, const aiMesh *mesh, bool rotateZUp, float scale,
-              const glm::vec3 &move, Buffer stagingBuffer, Buffer buffer,
+              const glm::vec3 &move, StagingBuffer stagingBuffer, Buffer buffer,
               uint32_t bufferIndex, uint32_t &bufferOffset, SceneMesh &result) {
   uint32_t vertexCount = mesh->mNumVertices;
   uint32_t indexCount = mesh->mNumFaces * 3;
@@ -215,7 +208,7 @@ void loadMesh(LContext context, const aiMesh *mesh, bool rotateZUp, float scale,
 }
 
 void loadMeshes(LContext context, const aiScene *scene, bool rotateZUp,
-                float scale, const glm::vec3 &move, Buffer stagingBuffer,
+                float scale, const glm::vec3 &move, StagingBuffer stagingBuffer,
                 Buffer buffer, uint32_t bufferIndex, uint32_t &bufferOffset,
                 SceneAddition &result) {
   for (int i = 0; i < scene->mNumMeshes; ++i) {
@@ -228,9 +221,11 @@ void loadMeshes(LContext context, const aiScene *scene, bool rotateZUp,
 }
 
 void loadMaterial(LContext context, DescriptorPool descriptorPool,
-                  Sampler sampler, const aiMaterial *material,
-                  const std::filesystem::path &basePath, Buffer stagingBuffer,
-                  SceneMaterial &sceneMaterial, std::vector<Image> &images,
+                  MemoryPool imagePool, Sampler sampler,
+                  const aiMaterial *material,
+                  const std::filesystem::path &basePath,
+                  StagingBuffer stagingBuffer, SceneMaterial &sceneMaterial,
+                  std::vector<Image> &images,
                   std::vector<DescriptorSet> &descriptorSets) {
   // Helper lambda to load a texture of a specific type
   auto loadTextureType = [&](aiTextureType textureType,
@@ -240,11 +235,15 @@ void loadMaterial(LContext context, DescriptorPool descriptorPool,
       return UINT32_MAX;
     }
 
-    auto path = basePath / texturePath.C_Str();
+    // NOTE: On Windows, std::filesystem::path::c_str() returns const wchar_t*,
+    // thus we need to convert to string to then be able to provide const char*
+    // to STB
+    auto path = (basePath / texturePath.C_Str()).string();
     int width, height, channels;
     unsigned char *imageData =
         stbi_load(path.c_str(), &width, &height, &channels, STBI_rgb_alpha);
     if (!imageData) {
+      std::println("STB failed to load image: {}", stbi_failure_reason());
       return UINT32_MAX; // Failed to load texture
     }
 
@@ -260,28 +259,21 @@ void loadMaterial(LContext context, DescriptorPool descriptorPool,
     imageSpec.tiling = ImageTiling::OPTIMAL;
     imageSpec.initialLayout = ImageLayout::UNDEFINED;
     imageSpec.outMeta = &imageMeta;
+    imageSpec.memoryPool = imagePool;
     Image image = createImage(context, imageSpec);
-    imageMeta.ownership = QueueOwnership::TRANSFER;
+    imageMeta.ownership = QueueOwnershipState::TRANSFER;
 
-    // Upload texture data to staging buffer
-    uploadBufferData(context, stagingBuffer, imageData, 0, imageSize);
-
-    // Copy from staging buffer to GPU image
-    BufferMetadata stagingMeta{};
-    stagingMeta.stage = PipelineStage::TRANSFER;
-    stagingMeta.access = ResourceAccess::TRANSFER_READ;
-    stagingMeta.ownership = QueueOwnership::TRANSFER;
-    ImageDataCopySpecification copySpec{};
-    copySpec.image = image;
-    copySpec.imageMeta = imageMeta;
-    copySpec.stagingBuffer = stagingBuffer;
-    copySpec.stagingBufferMeta = stagingMeta;
-    copySpec.bufferOffset = 0;
-    copySpec.width = width;
-    copySpec.height = height;
-    copySpec.finalOwnership = QueueOwnership::GRAPHICS;
-
-    copyImageData(context, copySpec);
+    StagedUploadImageSpecification stagedUploadSpec{};
+    stagedUploadSpec.width = width;
+    stagedUploadSpec.height = height;
+    stagedUploadSpec.data = imageData;
+    stagedUploadSpec.pixelSize = 4;
+    stagedUploadSpec.stagingBuffer = stagingBuffer;
+    stagedUploadSpec.destination = image;
+    stagedUploadSpec.destinationMeta = imageMeta;
+    stagedUploadSpec.desiredLayout = ImageLayout::SHADER_READ_ONLY;
+    stagedUploadSpec.desiredOwnership = QueueOwnership::GRAPHICS;
+    stagedUploadImageData(context, stagedUploadSpec);
 
     stbi_image_free(imageData);
 
@@ -356,32 +348,28 @@ void loadMaterial(LContext context, DescriptorPool descriptorPool,
 
   aiString alphaMode;
   if (AI_SUCCESS == material->Get(AI_MATKEY_GLTF_ALPHAMODE, alphaMode)) {
-    if (std::strcmp(alphaMode.C_Str(), "BLEND") == 0) {
-      sceneMaterial.renderFlags = alphaBlendedMatFlag;
-    } else if (std::strcmp(alphaMode.C_Str(), "MASK") == 0) {
-      sceneMaterial.renderFlags = binaryTransparencyMatFlag;
-      // TODO: This is temporary until I implement alpha-to-coverage for binary
-      // transparency
-      sceneMaterial.renderFlags = alphaBlendedMatFlag;
+    if (std::strcmp(alphaMode.C_Str(), "BLEND") == 0 |
+        std::strcmp(alphaMode.C_Str(), "MASK") == 0) {
+      sceneMaterial.renderFlags = OITMatFlag;
     }
   }
 
   float opacity = 1.0f;
   material->Get(AI_MATKEY_OPACITY, opacity);
   if (opacity < 1.0f) {
-    sceneMaterial.renderFlags = alphaBlendedMatFlag;
+    sceneMaterial.renderFlags = OITMatFlag;
   }
 }
 
 void loadMaterials(LContext context, DescriptorPool descriptorPool,
-                   Sampler sampler, const aiScene *scene,
-                   const std::filesystem::path &basePath, Buffer stagingBuffer,
-                   SceneAddition &result) {
+                   MemoryPool imagePool, Sampler sampler, const aiScene *scene,
+                   const std::filesystem::path &basePath,
+                   StagingBuffer stagingBuffer, SceneAddition &result) {
   for (int i = 0; i < scene->mNumMaterials; ++i) {
     const aiMaterial *material = scene->mMaterials[i];
     SceneMaterial sceneMaterial{};
-    loadMaterial(context, descriptorPool, sampler, material, basePath,
-                 stagingBuffer, sceneMaterial, result.images,
+    loadMaterial(context, descriptorPool, imagePool, sampler, material,
+                 basePath, stagingBuffer, sceneMaterial, result.images,
                  result.descriptorSets);
     result.sceneMaterials.emplace_back(std::move(sceneMaterial));
   }
@@ -390,8 +378,7 @@ void loadMaterials(LContext context, DescriptorPool descriptorPool,
 } // namespace
 
 JobResultCode processAssimpLoadGLMJob(AssimpLoadJob *job, LContext context,
-                                      BufferSpecification &stagingBufferSpec,
-                                      Buffer &stagingBuffer) {
+                                      StagingBuffer stagingBuffer) {
   Assimp::Importer importer;
   const aiScene *scene = importer.ReadFile(
       job->file, aiProcess_Triangulate | aiProcess_ImproveCacheLocality |
@@ -403,42 +390,41 @@ JobResultCode processAssimpLoadGLMJob(AssimpLoadJob *job, LContext context,
   }
 
   uint32_t totalSize;
-  uint32_t largestSize;
-  determineBufferSizes(scene, totalSize, largestSize);
-
-  // TODO: Should adjust for images as well
-  try {
-    if (stagingBufferSpec.size < largestSize) {
-      while (stagingBufferSpec.size < largestSize) {
-        // TODO: Cap this
-        stagingBufferSpec.size *= 2;
-      }
-      destroyBuffer(context, stagingBuffer);
-      stagingBuffer = allocateBuffer(context, stagingBufferSpec);
-    }
-  } catch (...) {
-    return JobResultCode::STAGING_BUFFER_ERROR;
-  }
+  determineBufferSize(scene, totalSize);
 
   BufferSpecification bufferSpec{};
   bufferSpec.size = totalSize;
-  bufferSpec.source = BufferSource::GPU;
-  bufferSpec.consumer = BufferConsumer::GPU;
-  bufferSpec.frequency = BufferFrequency::STATIC;
   bufferSpec.initialOwnership = QueueOwnership::TRANSFER;
   bufferSpec.usage =
       BufferUsage::VERTEX | BufferUsage::INDEX | BufferUsage::TRANSFER_DST;
-  Buffer buffer = allocateBuffer(context, bufferSpec);
+  bufferSpec.memoryPool = job->bufferPool;
+  Buffer buffer = createBuffer(context, bufferSpec);
+  if (not buffer) {
+    std::println("[JobSystem] Failed to allocate a buffer");
+    return JobResultCode::BUFFER_UPLOAD_ERROR;
+  }
   job->sceneAddition.buffers.push_back(buffer);
 
   uint32_t bufferOffset = 0;
+  // TODO: Staging buffer mishandled inside
   loadMeshes(context, scene, job->rotateZUp, job->scale, job->move,
              stagingBuffer, buffer, 0, bufferOffset, job->sceneAddition);
 
   std::filesystem::path basePath = job->file;
   basePath.remove_filename();
-  loadMaterials(context, job->descriptorPool, job->sampler, scene, basePath,
-                stagingBuffer, job->sceneAddition);
+  // TODO: Staging buffer mishandled inside
+  loadMaterials(context, job->descriptorPool, job->imagePool, job->sampler,
+                scene, basePath, stagingBuffer, job->sceneAddition);
+
+  BufferMetadata srcMeta{};
+  srcMeta.stage = PipelineStage::TRANSFER;
+  srcMeta.access = ResourceAccess::TRANSFER_WRITE;
+  srcMeta.ownership = QueueOwnershipState::TRANSFER;
+  BufferMetadata dstMeta{};
+  dstMeta.stage = PipelineStage::BOTTOM_OF_PIPE;
+  dstMeta.access = ResourceAccess::NONE;
+  dstMeta.ownership = QueueOwnershipState::TRANSFER_RELEASED_TO_GRAPHICS;
+  transitionBuffer(context, buffer, srcMeta, dstMeta);
 
   return JobResultCode::SUCCESS;
 }

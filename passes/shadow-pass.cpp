@@ -4,14 +4,17 @@
 
 #include <glm/glm.hpp>
 
-ShadowPass createShadowPass(LContext context,
+ShadowPass createShadowPass(svet::renderer::LContext context,
                             const ShadowPassSpecification &spec) {
+  using namespace svet::renderer;
+
   ShadowPass pass{};
 
   {
     ImageSpecification depthRenderTargetSpec{};
     depthRenderTargetSpec.width = spec.width;
     depthRenderTargetSpec.height = spec.height;
+    depthRenderTargetSpec.memoryPool = spec.targetImagePool;
     depthRenderTargetSpec.pixelFormat = spec.depthPixelFormat;
     // We use this image as a render target and blit from it to the swapchain
     depthRenderTargetSpec.usage = ImageUsage::TRANSFER_SRC |
@@ -92,53 +95,37 @@ ShadowPass createShadowPass(LContext context,
   return pass;
 }
 
-void destroyShadowPass(LContext context, ShadowPass &pass) {
+void destroyShadowPass(svet::renderer::LContext context, ShadowPass &pass) {
   destroyRenderPass(context, pass.renderPass);
   destroyPipeline(context, pass.pipeline);
   destroyPipelineLayout(context, pass.pipelineLayout);
   destroyImage(context, pass.target);
 }
 
-void recordShadowPass(LContext context, const ShadowPass &pass,
-                      const Scene &scene, DrawCommandIndexes &indexes,
-                      DrawCommand &drawCommand) {
+void recordShadowPass(FrameData &frame, const ShadowPass &pass,
+                      const Scene &scene) {
+  using namespace svet::renderer;
+
   {
     const ImageMetadata targetClearMeta{
-        ImageLayout::UNDEFINED, QueueOwnership::GRAPHICS,
+        ImageLayout::UNDEFINED, QueueOwnershipState::GRAPHICS,
         PipelineStage::FRAGMENT_SHADER, ResourceAccess::SHADER_READ};
 
     const ImageMetadata renderTargetDepthMeta{
-        ImageLayout::DEPTH_RENDER_TARGET, QueueOwnership::GRAPHICS,
+        ImageLayout::DEPTH_RENDER_TARGET, QueueOwnershipState::GRAPHICS,
         PipelineStage::EARLY_FRAGMENT_TESTS,
         ResourceAccess::DEPTH_STENCIL_READ |
             ResourceAccess::DEPTH_STENCIL_WRITE};
 
-    drawCommand.operations[indexes.operationIndex++] = {
-        DrawOperationType::IMAGE_BARRIER, indexes.imageBarrierIndex};
-    drawCommand.operations[indexes.operationIndex++] = {
-        DrawOperationType::BEGIN_RENDER_PASS, indexes.renderPassIndex};
-    drawCommand.operations[indexes.operationIndex++] = {
-        DrawOperationType::BIND_PIPELINE, indexes.pipelineIndex};
-
-    drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-        pass.target, targetClearMeta, renderTargetDepthMeta};
-
-    drawCommand.renderPasses[indexes.renderPassIndex] = pass.renderPass;
-    drawCommand.pipelines[indexes.pipelineIndex++] = pass.pipeline;
+    cmdImageBarrier(frame.context, frame.drawProcessor, pass.target,
+                    targetClearMeta, renderTargetDepthMeta);
+    cmdBeginRenderPass(frame.drawProcessor, pass.renderPass);
+    cmdBindPipeline(frame.drawProcessor, pass.pipeline);
   }
 
   {
-    drawCommand.operations[indexes.operationIndex++] = {
-        DrawOperationType::PUSH_CONSTANT, indexes.pushConstantIndex};
-    drawCommand.pushConstants[indexes.pushConstantIndex].visibility =
-        ShaderVisibility::VERTEX;
-    auto orto =
-        (glm::mat4 *)drawCommand.pushConstants[indexes.pushConstantIndex].bytes;
-    *orto = getSunOrtho(scene.sun);
-    drawCommand.pushConstants[indexes.pushConstantIndex].offset = 0;
-    drawCommand.pushConstants[indexes.pushConstantIndex].size =
-        sizeof(glm::mat4);
-    ++indexes.pushConstantIndex;
+    cmdPushConstant(frame.drawProcessor, getSunOrtho(scene.sun),
+                    ShaderVisibility::VERTEX);
 
     for (int i = 0; i < scene.meshes.size(); ++i) {
       uint32_t positionsIndex = UINT32_MAX;
@@ -157,34 +144,26 @@ void recordShadowPass(LContext context, const ShadowPass &pass,
           // usually has only thin surfaces with no backfaces so they will not
           // cast anyway - no need to process them
           scene.materials[scene.meshes[i].material].renderFlags &
-              (alphaBlendedMatFlag | binaryTransparencyMatFlag)) {
+              (OITMatFlag | ODTMatFlag)) {
         continue;
       }
 
       bool drawIndexed = indexesIndex != UINT32_MAX;
 
-      drawCommand.operations[indexes.operationIndex++] = {
-          DrawOperationType::BIND_VERTEX_BUFFER, indexes.vertexBindingIndex, 1};
       const auto &posAttr = scene.meshes[i].vertexAttributes[positionsIndex];
-      drawCommand.vertexBindings[indexes.vertexBindingIndex++] = {
-          scene.buffers[posAttr.buffer], 0, posAttr.offset};
+      cmdBindVertexAttrib(frame.drawProcessor, scene.buffers[posAttr.buffer], 0,
+                          posAttr.offset);
 
       if (drawIndexed) {
-        drawCommand.operations[indexes.operationIndex++] = {
-            DrawOperationType::BIND_INDEX_BUFFER, indexes.indexBindingIndex};
-
         const auto &indAttr = scene.meshes[i].vertexAttributes[indexesIndex];
-        drawCommand.indexBindings[indexes.indexBindingIndex++] = {
-            scene.buffers[indAttr.buffer], indAttr.offset};
+        cmdBindIndexBuffer(frame.drawProcessor, scene.buffers[indAttr.buffer],
+                           indAttr.offset);
       }
 
-      drawCommand.operations[indexes.operationIndex++] = {
-          DrawOperationType::DRAW, indexes.drawCallIndex};
-      drawCommand.drawCalls[indexes.drawCallIndex++] = {
-          scene.meshes[i].elementCount, 1, drawIndexed};
+      cmdDrawCall(frame.drawProcessor, scene.meshes[i].elementCount, 1,
+                  drawIndexed);
     }
   }
 
-  drawCommand.operations[indexes.operationIndex++] = {
-      DrawOperationType::END_RENDER_PASS, indexes.renderPassIndex++};
+  cmdEndRenderPass(frame.drawProcessor);
 }

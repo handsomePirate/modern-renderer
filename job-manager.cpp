@@ -13,9 +13,10 @@ inline bool appendJob(JobRequests &jobRequests,
                       MappedPool<Job, Capacity> &mappedPool, Job job,
                       JobType type) {
   auto jobMeta = mappedPool.pool.alloc();
-  std::memset((void *)jobMeta, 0, sizeof(JobMeta<Job>));
   if (not jobMeta)
     return false;
+
+  std::memset((void *)jobMeta, 0, sizeof(JobMeta<Job>));
 
   uint64_t jobId = counter++;
 
@@ -58,14 +59,18 @@ inline Job &retrieveJob(MappedPool<Job, Capacity> &mappedPool, uint64_t jobId) {
 
 } // namespace
 
-void initJobManager(JobManager &jobManager, LContext context) {
+void initJobManager(JobManager &jobManager, svet::renderer::LContext context,
+                    svet::renderer::StagingBuffer stagingBuffer) {
+  jobManager.assimpPool.map = {};
+  jobManager.bufferPool.map = {};
+  jobManager.imagePool.map = {};
   jobManager.stopJobThread = false;
-  jobManager.jobThread =
-      std::thread([context, &stopJobThread = jobManager.stopJobThread,
-                   &jobRequests = jobManager.jobRequests,
-                   &jobResults = jobManager.jobResults]() {
-        consume(context, stopJobThread, jobRequests, jobResults);
-      });
+  jobManager.jobThread = std::thread([context, stagingBuffer,
+                                      &stopJobThread = jobManager.stopJobThread,
+                                      &jobRequests = jobManager.jobRequests,
+                                      &jobResults = jobManager.jobResults]() {
+    consume(context, stopJobThread, jobRequests, jobResults, stagingBuffer);
+  });
 }
 
 void stopJobManager(JobManager &jobManager) {

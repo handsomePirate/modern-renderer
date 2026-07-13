@@ -1,24 +1,25 @@
 #pragma once
+#include "frame.h"
 #include "passes/geometry-pass.h"
-#include "renderer.h"
+#include "svet/renderer/context.h"
+#include "svet/renderer/image.h"
 
 struct GeometryPipeline {
   GeometryPass pass;
-  DrawProcessor drawProcessor;
 };
 
 struct GeometryPipelineSpecification {
   uint32_t width;
   uint32_t height;
-  PixelFormat colorPixelFormat;
-  PixelFormat depthPixelFormat;
-  DrawProcessor drawProcessor;
+  svet::renderer::MemoryPool targetImagePool;
+  svet::renderer::PixelFormat colorPixelFormat;
+  svet::renderer::PixelFormat depthPixelFormat;
 };
 GeometryPipeline
-createGeometryPipeline(LContext context,
+createGeometryPipeline(svet::renderer::LContext context,
                        const GeometryPipelineSpecification &spec);
-void destroyGeometryPipeline(LContext context, GeometryPipeline &pipeline);
-void geometryPipelineDrawFrame(LContext context, GeometryPipeline &pipeline,
-                               float timeSeconds, DrawCommand &drawCommand,
-                               DrawCommandIndexes &indexes, Scene &scene,
-                               Image &result, ImageMetadata &resultMeta);
+void destroyGeometryPipeline(svet::renderer::LContext context,
+                             GeometryPipeline &pipeline);
+void geometryPipelineDrawFrame(FrameData &frame, GeometryPipeline &pipeline,
+                               Scene &scene, svet::renderer::Image &result,
+                               svet::renderer::ImageMetadata &resultMeta);

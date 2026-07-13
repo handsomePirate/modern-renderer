@@ -23,5 +23,3 @@ I made this on Linux and haven't had the chance to test on Windows, but I haven'
 # Sponza
 
 I'm using the `https://github.com/KhronosGroup/glTF-Sample-Assets.git` 2.0 Sponza model (`glTF-Sample-Assets/2.0/Sponza/glTF/Sponza.gltf`) to test. You can use *W*,*S*,*A*,*D*,*R*,*F* and *mouse drag-and-move* to control the flycam. *SPACE* switches between simple geometry rendering and the full deferred pipeline. *G* enables or disables the directional light rotating around the scene.
-
-![alt text](img/sponza-scene.png)

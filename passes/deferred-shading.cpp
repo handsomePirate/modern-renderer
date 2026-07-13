@@ -5,8 +5,10 @@
 #include <glm/glm.hpp>
 
 DeferredShadingPass
-createDeferredShadingPass(LContext context,
+createDeferredShadingPass(svet::renderer::LContext context,
                           const DeferredShadingPassSpecification &spec) {
+  using namespace svet::renderer;
+
   DeferredShadingPass pass;
   pass.width = spec.width;
   pass.height = spec.height;
@@ -15,18 +17,17 @@ createDeferredShadingPass(LContext context,
   {
     BufferSpecification bufferSpec{};
     bufferSpec.size = sizeof(DeferredShadingParams);
-    bufferSpec.source = BufferSource::CPU;
-    bufferSpec.consumer = BufferConsumer::GPU;
-    bufferSpec.frequency = BufferFrequency::DYNAMIC;
+    bufferSpec.memoryPool = spec.uniformBufferPool;
     bufferSpec.usage = BufferUsage::UNIFORM;
     bufferSpec.initialOwnership = QueueOwnership::GRAPHICS;
-    pass.shadingParamsBuffer = allocateBuffer(context, bufferSpec);
+    pass.shadingParamsBuffer = createBuffer(context, bufferSpec);
   }
 
   {
     ImageSpecification shadedImageSpec{};
     shadedImageSpec.width = spec.width;
     shadedImageSpec.height = spec.height;
+    shadedImageSpec.memoryPool = spec.targetImagePool;
     shadedImageSpec.pixelFormat = spec.colorPixelFormat;
     shadedImageSpec.tiling = ImageTiling::OPTIMAL;
     shadedImageSpec.usage =
@@ -100,7 +101,8 @@ createDeferredShadingPass(LContext context,
   return pass;
 }
 
-void destroyDeferredShadingPass(LContext context, DeferredShadingPass &pass) {
+void destroyDeferredShadingPass(svet::renderer::LContext context,
+                                DeferredShadingPass &pass) {
   destroyDescriptorSet(context, pass.gBufferSet);
   destroyPipeline(context, pass.pipeline);
   destroyPipelineLayout(context, pass.pipelineLayout);
@@ -109,10 +111,11 @@ void destroyDeferredShadingPass(LContext context, DeferredShadingPass &pass) {
   destroyBuffer(context, pass.shadingParamsBuffer);
 }
 
-void recordDeferredShadingPass(LContext context,
+void recordDeferredShadingPass(FrameData &frame,
                                const DeferredShadingPass &pass,
-                               const Scene &scene, DrawCommandIndexes &indexes,
-                               DrawCommand &drawCommand) {
+                               const Scene &scene) {
+  using namespace svet::renderer;
+
   DeferredShadingParams params{};
   params.sunOrto = getSunOrtho(scene.sun);
   params.camPos = scene.camera.position;
@@ -120,48 +123,22 @@ void recordDeferredShadingPass(LContext context,
   params.sunIntensity = scene.sun.intensity;
   params.shadowMapRes = pass.shadowMapResolution;
   params.sunCol = scene.sun.color;
-  uploadBufferData(context, pass.shadingParamsBuffer, &params, 0,
+  uploadBufferData(frame.context, pass.shadingParamsBuffer, &params, 0,
                    sizeof(DeferredShadingParams));
   const ImageMetadata targetClearMeta{
-      ImageLayout::UNDEFINED, QueueOwnership::GRAPHICS,
+      ImageLayout::UNDEFINED, QueueOwnershipState::GRAPHICS,
       PipelineStage::TOP_OF_PIPE, ResourceAccess::NONE};
 
   const ImageMetadata computeTargetMeta{
-      ImageLayout::GENERAL, QueueOwnership::GRAPHICS,
+      ImageLayout::GENERAL, QueueOwnershipState::GRAPHICS,
       PipelineStage::COMPUTE_SHADER, ResourceAccess::SHADER_WRITE};
 
-  drawCommand.operations[indexes.operationIndex++] = {
-      DrawOperationType::IMAGE_BARRIER, indexes.imageBarrierIndex};
-  drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-      pass.target, targetClearMeta, computeTargetMeta};
+  cmdImageBarrier(frame.context, frame.drawProcessor, pass.target,
+                  targetClearMeta, computeTargetMeta);
+  cmdBindPipeline(frame.drawProcessor, pass.pipeline);
+  cmdBindDescriptorSet(frame.drawProcessor, pass.gBufferSet);
+  cmdPushConstant(frame.drawProcessor, 2u, ShaderVisibility::COMPUTE);
 
-  drawCommand.operations[indexes.operationIndex++] = {
-      DrawOperationType::BIND_PIPELINE, indexes.pipelineIndex};
-  drawCommand.pipelines[indexes.pipelineIndex++] = pass.pipeline;
-
-  drawCommand.operations[indexes.operationIndex++] = {
-      DrawOperationType::BIND_DESCRIPTOR_SETS,
-      indexes.descriptorSetBindingIndex};
-  drawCommand.descriptorSetBindings[indexes.descriptorSetBindingIndex++] = {
-      pass.gBufferSet, 0};
-
-  drawCommand.operations[indexes.operationIndex++] = {
-      DrawOperationType::PUSH_CONSTANT, indexes.pushConstantIndex};
-  drawCommand.pushConstants[indexes.pushConstantIndex].visibility =
-      ShaderVisibility::COMPUTE;
-  auto modelSelector =
-      (uint32_t *)drawCommand.pushConstants[indexes.pushConstantIndex].bytes;
-  *modelSelector = 2;
-  drawCommand.pushConstants[indexes.pushConstantIndex].offset = 0;
-  drawCommand.pushConstants[indexes.pushConstantIndex].size = sizeof(uint32_t);
-  ++indexes.pushConstantIndex;
-
-  drawCommand.operations[indexes.operationIndex++] = {
-      DrawOperationType::DISPATCH, indexes.dispatchCallIndex};
-  drawCommand.dispatchCalls[indexes.dispatchCallIndex].groupCountX =
-      (pass.width + 15) / 16;
-  drawCommand.dispatchCalls[indexes.dispatchCallIndex].groupCountY =
-      (pass.height + 15) / 16;
-  drawCommand.dispatchCalls[indexes.dispatchCallIndex].groupCountZ = 1;
-  ++indexes.dispatchCallIndex;
+  cmdDispatch(frame.drawProcessor, (pass.width + 15) / 16,
+              (pass.height + 15) / 16);
 }

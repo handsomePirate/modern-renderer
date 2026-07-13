@@ -2,13 +2,16 @@
 #include "scene.h"
 
 DeferredPipeline
-createDeferredPipeline(LContext context,
+createDeferredPipeline(svet::renderer::LContext context,
                        const DeferredPipelineSpecification &spec) {
+  using namespace svet::renderer;
+
   DeferredPipeline pipeline;
 
   ShadowPassSpecification shadowPassSpec{};
   shadowPassSpec.width = spec.shadowMapResolution;
   shadowPassSpec.height = spec.shadowMapResolution;
+  shadowPassSpec.targetImagePool = spec.targetImagePool;
   shadowPassSpec.depthPixelFormat = spec.shadowMapPixelFormat;
   shadowPassSpec.vertFile = "./shaders/shadow.vert.spv";
   shadowPassSpec.fragFile = "./shaders/shadow.frag.spv";
@@ -17,6 +20,7 @@ createDeferredPipeline(LContext context,
   DeferredBasePassSpecification deferredBasePassSpec{};
   deferredBasePassSpec.width = spec.width;
   deferredBasePassSpec.height = spec.height;
+  deferredBasePassSpec.targetImagePool = spec.targetImagePool;
   deferredBasePassSpec.colorPixelFormat = spec.colorPixelFormat;
   deferredBasePassSpec.positionPixelFormat = spec.positionPixelFormat;
   deferredBasePassSpec.depthPixelFormat = spec.depthPixelFormat;
@@ -25,6 +29,8 @@ createDeferredPipeline(LContext context,
   pipeline.basePass = createDeferredBasePass(context, deferredBasePassSpec);
 
   DeferredShadingPassSpecification deferredShadingPassSpec{};
+  deferredShadingPassSpec.uniformBufferPool = spec.uniformBufferPool;
+  deferredShadingPassSpec.targetImagePool = spec.targetImagePool;
   deferredShadingPassSpec.descriptorPool = spec.descriptorPool;
   deferredShadingPassSpec.gBuffer[0] = pipeline.basePass.gBuffer[0];
   deferredShadingPassSpec.gBuffer[1] = pipeline.basePass.gBuffer[1];
@@ -46,6 +52,8 @@ createDeferredPipeline(LContext context,
   weightedOITPassSpec.width = spec.width;
   weightedOITPassSpec.height = spec.height;
   weightedOITPassSpec.shadowMapResolution = spec.shadowMapResolution;
+  weightedOITPassSpec.uniformBufferPool = spec.uniformBufferPool;
+  weightedOITPassSpec.targetImagePool = spec.targetImagePool;
   weightedOITPassSpec.descriptorPool = spec.descriptorPool;
   weightedOITPassSpec.accumulatorFormat = PixelFormat::FLOAT16_RGBA;
   weightedOITPassSpec.revealFormat = PixelFormat::FLOAT16_R;
@@ -62,6 +70,7 @@ createDeferredPipeline(LContext context,
   OverlayPassSpecification overlayPassSpec{};
   overlayPassSpec.width = spec.width;
   overlayPassSpec.height = spec.height;
+  overlayPassSpec.targetImagePool = spec.targetImagePool;
   overlayPassSpec.colorPixelFormat = spec.colorPixelFormat;
   overlayPassSpec.descriptorPool = spec.descriptorPool;
   overlayPassSpec.background = pipeline.shadingPass.target;
@@ -69,12 +78,11 @@ createDeferredPipeline(LContext context,
   overlayPassSpec.compFile = "./shaders/overlay.comp.spv";
   pipeline.overlayPass = createOverlayPass(context, overlayPassSpec);
 
-  pipeline.drawProcessor = spec.drawProcessor;
-
   return pipeline;
 }
 
-void destroyDeferredPipeline(LContext context, DeferredPipeline &pipeline) {
+void destroyDeferredPipeline(svet::renderer::LContext context,
+                             DeferredPipeline &pipeline) {
   destroyOverlayPass(context, pipeline.overlayPass);
   destroyWeightedOITPass(context, pipeline.weightedOITPass);
   destroyDeferredShadingPass(context, pipeline.shadingPass);
@@ -82,71 +90,70 @@ void destroyDeferredPipeline(LContext context, DeferredPipeline &pipeline) {
   destroyShadowPass(context, pipeline.shadowPass);
 }
 
-void deferredPipelineDrawFrame(LContext context, DeferredPipeline &pipeline,
-                               float timeSeconds, DrawCommand &drawCommand,
-                               DrawCommandIndexes &indexes, Scene &scene,
-                               Image &result, ImageMetadata &resultMeta) {
+void deferredPipelineDrawFrame(FrameData &frame, DeferredPipeline &pipeline,
+                               Scene &scene, svet::renderer::Image &result,
+                               svet::renderer::ImageMetadata &resultMeta) {
+  using namespace svet::renderer;
+
   const ImageMetadata shaderReadMeta{
-      ImageLayout::SHADER_READ_ONLY, QueueOwnership::GRAPHICS,
+      ImageLayout::SHADER_READ_ONLY, QueueOwnershipState::GRAPHICS,
       PipelineStage::FRAGMENT_SHADER, ResourceAccess::SHADER_READ};
 
   const ImageMetadata renderTargetColorMeta{
-      ImageLayout::COLOR_RENDER_TARGET, QueueOwnership::GRAPHICS,
+      ImageLayout::COLOR_RENDER_TARGET, QueueOwnershipState::GRAPHICS,
       PipelineStage::RENDER_TARGET_OUTPUT, ResourceAccess::RENDER_TARGET_WRITE};
 
   const ImageMetadata renderTargetDepthMeta{
-      ImageLayout::DEPTH_RENDER_TARGET, QueueOwnership::GRAPHICS,
+      ImageLayout::DEPTH_RENDER_TARGET, QueueOwnershipState::GRAPHICS,
       PipelineStage::EARLY_FRAGMENT_TESTS,
       ResourceAccess::DEPTH_STENCIL_READ | ResourceAccess::DEPTH_STENCIL_WRITE};
 
   const ImageMetadata computeTargetMeta{
-      ImageLayout::GENERAL, QueueOwnership::GRAPHICS,
+      ImageLayout::GENERAL, QueueOwnershipState::GRAPHICS,
       PipelineStage::COMPUTE_SHADER, ResourceAccess::SHADER_WRITE};
 
-  resetDrawProcessor(context, pipeline.drawProcessor);
+  resetDrawProcessor(frame.context, frame.drawProcessor);
 
-  recordSceneLoadCommands(context, scene, indexes, drawCommand);
+  recordSceneLoadCommands(frame, scene);
 
-  recordShadowPass(context, pipeline.shadowPass, scene, indexes, drawCommand);
+  recordShadowPass(frame, pipeline.shadowPass, scene);
 
-  recordDeferredBasePass(context, pipeline.basePass, scene, indexes,
-                         drawCommand);
+  recordDeferredBasePass(frame, pipeline.basePass, scene);
 
-  drawCommand.operations[indexes.operationIndex++] = {
-      DrawOperationType::IMAGE_BARRIER, indexes.imageBarrierIndex, 6};
-  drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-      pipeline.basePass.gBuffer[0], renderTargetColorMeta, shaderReadMeta};
-  drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-      pipeline.basePass.gBuffer[1], renderTargetColorMeta, shaderReadMeta};
-  drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-      pipeline.basePass.gBuffer[2], renderTargetColorMeta, shaderReadMeta};
-  drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-      pipeline.basePass.gBuffer[3], renderTargetColorMeta, shaderReadMeta};
-  drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-      pipeline.basePass.gBuffer[4], renderTargetDepthMeta, shaderReadMeta};
-  drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-      pipeline.shadowPass.target, renderTargetDepthMeta, shaderReadMeta};
+  {
+    ImageBarrier barriers[] = {
+        {pipeline.basePass.gBuffer[0], renderTargetColorMeta, shaderReadMeta},
+        {pipeline.basePass.gBuffer[1], renderTargetColorMeta, shaderReadMeta},
+        {pipeline.basePass.gBuffer[2], renderTargetColorMeta, shaderReadMeta},
+        {pipeline.basePass.gBuffer[3], renderTargetColorMeta, shaderReadMeta},
+        {pipeline.basePass.gBuffer[4], renderTargetDepthMeta, shaderReadMeta},
+        {pipeline.shadowPass.target, renderTargetDepthMeta, shaderReadMeta},
+    };
+    cmdImageBarriers(frame.context, frame.drawProcessor, barriers,
+                     std::size(barriers));
+  }
 
-  recordDeferredShadingPass(context, pipeline.shadingPass, scene, indexes,
-                            drawCommand);
+  recordDeferredShadingPass(frame, pipeline.shadingPass, scene);
 
-  recordWeightedOITPassDrawScene(context, pipeline.weightedOITPass, scene,
-                                 indexes, drawCommand);
+  cmdImageBarrier(frame.context, frame.drawProcessor,
+                  pipeline.basePass.gBuffer[4], shaderReadMeta,
+                  renderTargetDepthMeta);
 
-  drawCommand.operations[indexes.operationIndex++] = {
-      DrawOperationType::IMAGE_BARRIER, indexes.imageBarrierIndex, 2};
-  drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-      pipeline.overlayPass.background, computeTargetMeta, shaderReadMeta};
-  drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-      pipeline.overlayPass.foreground, computeTargetMeta, shaderReadMeta};
+  recordWeightedOITPassDrawScene(frame, pipeline.weightedOITPass, scene);
 
-  recordOverlayPass(context, pipeline.overlayPass, scene, indexes, drawCommand);
+  {
+    ImageBarrier barriers[] = {
+        {pipeline.overlayPass.background, computeTargetMeta, shaderReadMeta},
+        {pipeline.overlayPass.foreground, computeTargetMeta, shaderReadMeta},
+    };
+    cmdImageBarriers(frame.context, frame.drawProcessor, barriers,
+                     std::size(barriers));
+  }
 
-  processDraw(context, pipeline.drawProcessor, drawCommand,
-              indexes.operationIndex);
+  recordOverlayPass(frame, pipeline.overlayPass, scene);
+
+  submitDrawProcessor(frame.context, frame.drawProcessor);
 
   result = pipeline.overlayPass.target;
   resultMeta = computeTargetMeta;
-  // result = pipeline.weightedOITPass.resolve;
-  // resultMeta = computeTargetMeta;
 }

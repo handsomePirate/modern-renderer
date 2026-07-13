@@ -6,10 +6,15 @@
 #include <assimp/scene.h>
 #include <glm/gtc/matrix_transform.hpp>
 
-Scene createScene(LContext context, const SceneSpecification &spec) {
+Scene createScene(svet::renderer::LContext context,
+                  const SceneSpecification &spec) {
+  using namespace svet::renderer;
+
   Scene scene;
-  scene.defaultAlbedo = genSinglePixel(context, 255, 0, 255);
-  scene.defaultHeight = genSinglePixel(context, 127, 127, 127);
+  scene.defaultAlbedo = genSinglePixel(context, 255, 0, 255, spec.stagingBuffer,
+                                       spec.textureImagePool);
+  scene.defaultHeight = genSinglePixel(
+      context, 127, 127, 127, spec.stagingBuffer, spec.textureImagePool);
 
   scene.descriptorPool = spec.descriptorPool;
   SamplerSpecification samplerSpec{};
@@ -22,12 +27,10 @@ Scene createScene(LContext context, const SceneSpecification &spec) {
   {
     BufferSpecification cameraBufferSpec{};
     cameraBufferSpec.size = sizeof(glm::mat4);
-    cameraBufferSpec.source = BufferSource::CPU;
-    cameraBufferSpec.consumer = BufferConsumer::GPU;
-    cameraBufferSpec.frequency = BufferFrequency::DYNAMIC;
+    cameraBufferSpec.memoryPool = spec.uniformBufferPool;
     cameraBufferSpec.usage = BufferUsage::UNIFORM;
     cameraBufferSpec.initialOwnership = QueueOwnership::GRAPHICS;
-    scene.cameraBuffer = allocateBuffer(context, cameraBufferSpec);
+    scene.cameraBuffer = createBuffer(context, cameraBufferSpec);
   }
 
   {
@@ -57,51 +60,39 @@ Scene createScene(LContext context, const SceneSpecification &spec) {
   return scene;
 }
 
-void recordSceneLoadCommands(LContext context, Scene &scene,
-                             DrawCommandIndexes &indexes,
-                             DrawCommand &drawCommand) {
+void recordSceneLoadCommands(FrameData &frame, Scene &scene) {
+  using namespace svet::renderer;
   const ImageMetadata loadedTextureImageMeta{
-      ImageLayout::TRANSFER_DST, QueueOwnership::TRANSFER_RELEASED_TO_GRAPHICS,
+      ImageLayout::TRANSFER_DST,
+      QueueOwnershipState::TRANSFER_RELEASED_TO_GRAPHICS,
       PipelineStage::TRANSFER, ResourceAccess::TRANSFER_WRITE};
 
   const ImageMetadata shaderReadImageMeta{
-      ImageLayout::SHADER_READ_ONLY, QueueOwnership::GRAPHICS,
+      ImageLayout::SHADER_READ_ONLY, QueueOwnershipState::GRAPHICS,
       PipelineStage::FRAGMENT_SHADER, ResourceAccess::SHADER_READ};
 
   const BufferMetadata bufferCopyBufferMeta{
-      QueueOwnership::TRANSFER_RELEASED_TO_GRAPHICS, PipelineStage::TRANSFER,
-      ResourceAccess::TRANSFER_WRITE};
+      QueueOwnershipState::TRANSFER_RELEASED_TO_GRAPHICS,
+      PipelineStage::TRANSFER, ResourceAccess::TRANSFER_WRITE};
 
-  PipelineStage s;
   const BufferMetadata vertexAttribBufferMeta{
-      QueueOwnership::GRAPHICS, PipelineStage::VERTEX_ATTRIBUTE_INPUT,
+      QueueOwnershipState::GRAPHICS, PipelineStage::VERTEX_ATTRIBUTE_INPUT,
       ResourceAccess::VERTEX_ATTRIBUTE_READ};
 
-  if (not scene.newBuffers.is_empty()) {
-    drawCommand.operations[indexes.operationIndex++] = {
-        DrawOperationType::BUFFER_BARRIER, indexes.bufferBarrierIndex,
-        (uint32_t)scene.newBuffers.size()};
-    while (not scene.newBuffers.is_empty()) {
-      auto newBuffer = scene.newBuffers.pop().value();
-      // TODO: Different types of buffers could be here
-      drawCommand.bufferBarriers[indexes.bufferBarrierIndex++] = {
-          newBuffer, bufferCopyBufferMeta, vertexAttribBufferMeta};
-    }
+  while (not scene.newBuffers.is_empty()) {
+    auto newBuffer = scene.newBuffers.pop().value();
+    cmdBufferBarrier(frame.context, frame.drawProcessor, newBuffer,
+                     bufferCopyBufferMeta, vertexAttribBufferMeta);
   }
 
-  if (not scene.newImages.is_empty()) {
-    drawCommand.operations[indexes.operationIndex++] = {
-        DrawOperationType::IMAGE_BARRIER, indexes.imageBarrierIndex,
-        (uint32_t)scene.newImages.size()};
-    while (not scene.newImages.is_empty()) {
-      auto newImage = scene.newImages.pop().value();
-      drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-          newImage, loadedTextureImageMeta, shaderReadImageMeta};
-    }
+  while (not scene.newImages.is_empty()) {
+    auto newImage = scene.newImages.pop().value();
+    cmdImageBarrier(frame.context, frame.drawProcessor, newImage,
+                    loadedTextureImageMeta, shaderReadImageMeta);
   }
 }
 
-void destroyScene(LContext context, Scene &scene) {
+void destroyScene(svet::renderer::LContext context, Scene &scene) {
   for (int i = 0; i < scene.descriptorSets.size(); ++i) {
     destroyDescriptorSet(context, scene.descriptorSets[i]);
   }

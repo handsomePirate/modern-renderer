@@ -15,6 +15,8 @@ public:
 template <typename _T, size_t _Capacity> class base {
 public:
   using element_type = _T;
+  // TODO: alignment
+  static constexpr const size_t min_chunk_size = sizeof(void *) + sizeof(_T);
   static constexpr const size_t chunk_size = sizeof(void *) + sizeof(_T);
   static constexpr const size_t capacity = _Capacity;
   static constexpr const size_t mem_size = chunk_size * capacity;

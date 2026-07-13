@@ -1,6 +1,9 @@
 #pragma once
-#include "renderer.h"
-#include "types.h"
+#include "pipelines/frame.h"
+#include "svet/renderer/buffer.h"
+#include "svet/renderer/descriptor.h"
+#include "svet/renderer/image.h"
+#include "svet/renderer/staging.h"
 
 #include <ext/ring-buffer/st_rb.hpp>
 #include <glm/glm.hpp>
@@ -60,9 +63,9 @@ struct SceneMaterial {
 struct SceneAddition {
   // TODO: supply buffers to allocate things in
 
-  std::vector<Buffer> buffers;
-  std::vector<Image> images;
-  std::vector<DescriptorSet> descriptorSets;
+  std::vector<svet::renderer::Buffer> buffers;
+  std::vector<svet::renderer::Image> images;
+  std::vector<svet::renderer::DescriptorSet> descriptorSets;
   std::vector<SceneMesh> sceneMeshes;
   std::vector<SceneMaterial> sceneMaterials;
   std::vector<SceneAnimation> sceneAnimations;
@@ -82,8 +85,8 @@ static constexpr const uint32_t albedoTexDASignature = 0x00000002;
 static constexpr const uint32_t normalTexDASignature = 0x00000003;
 static constexpr const uint32_t metalroughTexDASignature = 0x00000004;
 
-static constexpr const uint32_t alphaBlendedMatFlag = 0x00000001;
-static constexpr const uint32_t binaryTransparencyMatFlag = 0x00000002;
+static constexpr const uint32_t OITMatFlag = 0x00000001;
+static constexpr const uint32_t ODTMatFlag = 0x00000002;
 
 struct SceneCamera {
   glm::vec3 position;
@@ -101,39 +104,40 @@ struct SceneSun {
 
 struct Scene {
   SceneCamera camera;
-  DescriptorSet cameraSet;
-  Buffer cameraBuffer;
+  svet::renderer::DescriptorSet cameraSet;
+  svet::renderer::Buffer cameraBuffer;
   SceneSun sun;
 
   // Assets to be processed before they can be used
-  ring_buffer::st_ring_buffer<Buffer, 512> newBuffers;
-  ring_buffer::st_ring_buffer<Image, 512> newImages;
+  ring_buffer::st_ring_buffer<svet::renderer::Buffer, 512> newBuffers;
+  ring_buffer::st_ring_buffer<svet::renderer::Image, 512> newImages;
 
   // Assets ready for use
-  std::vector<Buffer> buffers;
-  std::vector<Image> images;
+  std::vector<svet::renderer::Buffer> buffers;
+  std::vector<svet::renderer::Image> images;
   std::vector<SceneMesh> meshes;
   std::vector<SceneMaterial> materials;
-  std::vector<DescriptorSet> descriptorSets;
+  std::vector<svet::renderer::DescriptorSet> descriptorSets;
 
-  Image defaultAlbedo;
-  Image defaultHeight;
+  svet::renderer::Image defaultAlbedo;
+  svet::renderer::Image defaultHeight;
 
-  DescriptorPool descriptorPool;
-  DescriptorSetLayout cameraSetLayout;
-  Sampler sampler;
-  std::vector<DescriptorSet> texturedMeshSets;
+  svet::renderer::DescriptorPool descriptorPool;
+  svet::renderer::DescriptorSetLayout cameraSetLayout;
+  svet::renderer::Sampler sampler;
+  std::vector<svet::renderer::DescriptorSet> texturedMeshSets;
 };
 
 struct SceneSpecification {
-  DescriptorPool descriptorPool;
-  DescriptorSetLayout cameraSetLayout;
+  svet::renderer::MemoryPool uniformBufferPool;
+  svet::renderer::MemoryPool textureImagePool;
+  svet::renderer::StagingBuffer stagingBuffer;
+  svet::renderer::DescriptorPool descriptorPool;
 };
-Scene createScene(LContext context, const SceneSpecification &spec);
-void recordSceneLoadCommands(LContext context, Scene &scene,
-                             DrawCommandIndexes &indexes,
-                             DrawCommand &drawCommand);
-void destroyScene(LContext context, Scene &scene);
+Scene createScene(svet::renderer::LContext context,
+                  const SceneSpecification &spec);
+void recordSceneLoadCommands(FrameData &frame, Scene &scene);
+void destroyScene(svet::renderer::LContext context, Scene &scene);
 glm::mat4 getVP(const SceneCamera &camera);
 glm::mat4 getSunView(const SceneSun &sun);
 glm::mat4 getSunOrtho(const SceneSun &sun);

@@ -1,37 +1,40 @@
 #pragma once
-#include "renderer.h"
-#include "types.h"
+#include "pipelines/frame.h"
+#include "svet/renderer/context.h"
+#include "svet/renderer/image.h"
+#include "svet/renderer/pipeline.h"
+#include "svet/renderer/render-pass.h"
 
 struct Scene;
 
 struct GeometryPass {
-  Image colorTarget;
-  Image depthTarget;
+  svet::renderer::Image colorTarget;
+  svet::renderer::Image depthTarget;
   bool shouldDestroyColorTarget;
   bool shouldDestroyDepthTarget;
 
-  PipelineLayout pipelineLayout;
-  Pipeline pipeline;
+  svet::renderer::PipelineLayout pipelineLayout;
+  svet::renderer::Pipeline pipeline;
 
-  RenderPass renderPass;
+  svet::renderer::RenderPass renderPass;
 };
 
 struct GeometryPassSpecification {
-  Image colorTarget;
-  Image depthTarget;
+  svet::renderer::Image colorTarget;
+  svet::renderer::Image depthTarget;
+  svet::renderer::MemoryPool targetImagePool;
   uint32_t width;
   uint32_t height;
-  LoadOp colorTargetLoadOp;
-  LoadOp depthTargetLoadOp;
-  PixelFormat colorPixelFormat;
-  PixelFormat depthPixelFormat;
+  svet::renderer::LoadOp colorTargetLoadOp;
+  svet::renderer::LoadOp depthTargetLoadOp;
+  svet::renderer::PixelFormat colorPixelFormat;
+  svet::renderer::PixelFormat depthPixelFormat;
   const char *vertFile;
   const char *fragFile;
 };
 
-GeometryPass createGeometryPass(LContext context,
+GeometryPass createGeometryPass(svet::renderer::LContext context,
                                 const GeometryPassSpecification &spec);
-void destroyGeometryPass(LContext context, GeometryPass &pass);
-void recordGeometryPass(LContext context, const GeometryPass &pass,
-                        const Scene &scene, DrawCommandIndexes &indexes,
-                        DrawCommand &drawCommand);
+void destroyGeometryPass(svet::renderer::LContext context, GeometryPass &pass);
+void recordGeometryPass(FrameData &frame, const GeometryPass &pass,
+                        const Scene &scene);

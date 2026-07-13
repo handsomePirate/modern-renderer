@@ -35,7 +35,8 @@ struct JobManager {
   std::thread jobThread;
 };
 
-void initJobManager(JobManager &jobManager, LContext context);
+void initJobManager(JobManager &jobManager, svet::renderer::LContext context,
+                    svet::renderer::StagingBuffer stagingBuffer);
 void stopJobManager(JobManager &jobManager);
 bool appendAssimpLoadJob(JobManager &jobManager, AssimpLoadJob job);
 bool appendBufferGPUUploadJob(JobManager &jobManager, BufferGPUUploadJob job);

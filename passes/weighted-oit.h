@@ -1,54 +1,59 @@
 #pragma once
-#include "renderer.h"
-#include "types.h"
+#include "pipelines/frame.h"
+#include "svet/renderer/context.h"
+#include "svet/renderer/image.h"
+#include "svet/renderer/memory.h"
+#include "svet/renderer/pipeline.h"
+#include "svet/renderer/render-pass.h"
 
 struct Scene;
 
 struct WeightedOITPass {
-  Image accumulator;
-  Image reveal;
-  Image resolve;
+  svet::renderer::Image accumulator;
+  svet::renderer::Image reveal;
+  svet::renderer::Image resolve;
   uint32_t width;
   uint32_t height;
   uint32_t shadowMapResolution;
 
-  Image inheritedDepth;
+  svet::renderer::Image inheritedDepth;
 
-  DescriptorSetLayout shadingLayout;
-  PipelineLayout graphicsPipelineLayout;
-  Pipeline graphicsPipeline;
-  DescriptorSet shadingSet;
+  svet::renderer::DescriptorSetLayout shadingLayout;
+  svet::renderer::PipelineLayout graphicsPipelineLayout;
+  svet::renderer::Pipeline graphicsPipeline;
+  svet::renderer::DescriptorSet shadingSet;
 
-  RenderPass renderPass;
+  svet::renderer::RenderPass renderPass;
 
-  DescriptorSetLayout computeLayout;
-  PipelineLayout computePipelineLayout;
-  Pipeline computePipeline;
-  DescriptorSet computeSet;
+  svet::renderer::DescriptorSetLayout computeLayout;
+  svet::renderer::PipelineLayout computePipelineLayout;
+  svet::renderer::Pipeline computePipeline;
+  svet::renderer::DescriptorSet computeSet;
 
-  Buffer shadingParamsBuffer;
+  svet::renderer::Buffer shadingParamsBuffer;
 };
 
 struct WeightedOITSpecification {
   uint32_t width;
   uint32_t height;
   uint32_t shadowMapResolution;
-  DescriptorPool descriptorPool;
-  PixelFormat accumulatorFormat;
-  PixelFormat revealFormat;
-  PixelFormat colorPixelFormat;
-  PixelFormat depthPixelFormat;
+  svet::renderer::MemoryPool uniformBufferPool;
+  svet::renderer::MemoryPool targetImagePool;
+  svet::renderer::DescriptorPool descriptorPool;
+  svet::renderer::PixelFormat accumulatorFormat;
+  svet::renderer::PixelFormat revealFormat;
+  svet::renderer::PixelFormat colorPixelFormat;
+  svet::renderer::PixelFormat depthPixelFormat;
   const char *vertFile;
   const char *fragFile;
   const char *compFile;
-  Image inheritedDepth;
-  Image shadowMap;
+  svet::renderer::Image inheritedDepth;
+  svet::renderer::Image shadowMap;
 };
-WeightedOITPass createWeightedOITPass(LContext context,
+WeightedOITPass createWeightedOITPass(svet::renderer::LContext context,
                                       const WeightedOITSpecification &spec);
-void destroyWeightedOITPass(LContext context, WeightedOITPass &pass);
-void recordWeightedOITPassDrawScene(LContext context,
+void destroyWeightedOITPass(svet::renderer::LContext context,
+                            WeightedOITPass &pass);
+void recordWeightedOITPassDrawScene(FrameData &frame,
                                     const WeightedOITPass &pass,
-                                    const Scene &scene,
-                                    DrawCommandIndexes &indexes,
-                                    DrawCommand &drawCommand);
+                                    const Scene &scene);

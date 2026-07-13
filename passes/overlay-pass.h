@@ -1,36 +1,38 @@
 #pragma once
-#include "renderer.h"
-#include "types.h"
+#include "pipelines/frame.h"
+#include "svet/renderer/context.h"
+#include "svet/renderer/image.h"
+#include "svet/renderer/pipeline.h"
 
 struct Scene;
 
 struct OverlayPass {
-  Image target;
-  Image background;
-  Image foreground;
+  svet::renderer::Image target;
+  svet::renderer::Image background;
+  svet::renderer::Image foreground;
 
-  DescriptorSetLayout setLayout;
-  PipelineLayout pipelineLayout;
-  Pipeline pipeline;
+  svet::renderer::DescriptorSetLayout setLayout;
+  svet::renderer::PipelineLayout pipelineLayout;
+  svet::renderer::Pipeline pipeline;
 
-  DescriptorSet set;
+  svet::renderer::DescriptorSet set;
 
   uint32_t width;
   uint32_t height;
 };
 
 struct OverlayPassSpecification {
-  Image background;
-  Image foreground;
-  DescriptorPool descriptorPool;
+  svet::renderer::Image background;
+  svet::renderer::Image foreground;
+  svet::renderer::MemoryPool targetImagePool;
+  svet::renderer::DescriptorPool descriptorPool;
   uint32_t width;
   uint32_t height;
-  PixelFormat colorPixelFormat;
+  svet::renderer::PixelFormat colorPixelFormat;
   const char *compFile;
 };
-OverlayPass createOverlayPass(LContext context,
+OverlayPass createOverlayPass(svet::renderer::LContext context,
                               const OverlayPassSpecification &spec);
-void destroyOverlayPass(LContext context, OverlayPass &pass);
-void recordOverlayPass(LContext context, const OverlayPass &pass,
-                       const Scene &scene, DrawCommandIndexes &indexes,
-                       DrawCommand &drawCommand);
+void destroyOverlayPass(svet::renderer::LContext context, OverlayPass &pass);
+void recordOverlayPass(FrameData &frame, const OverlayPass &pass,
+                       const Scene &scene);

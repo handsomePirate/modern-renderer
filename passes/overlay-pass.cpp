@@ -2,8 +2,10 @@
 #include "file.h"
 #include "scene.h"
 
-OverlayPass createOverlayPass(LContext context,
+OverlayPass createOverlayPass(svet::renderer::LContext context,
                               const OverlayPassSpecification &spec) {
+  using namespace svet::renderer;
+
   OverlayPass pass;
   pass.width = spec.width;
   pass.height = spec.height;
@@ -14,6 +16,7 @@ OverlayPass createOverlayPass(LContext context,
     ImageSpecification shadedImageSpec{};
     shadedImageSpec.width = spec.width;
     shadedImageSpec.height = spec.height;
+    shadedImageSpec.memoryPool = spec.targetImagePool;
     shadedImageSpec.pixelFormat = spec.colorPixelFormat;
     shadedImageSpec.tiling = ImageTiling::OPTIMAL;
     shadedImageSpec.usage = ImageUsage::STORAGE | ImageUsage::TRANSFER_SRC;
@@ -72,7 +75,7 @@ OverlayPass createOverlayPass(LContext context,
   return pass;
 }
 
-void destroyOverlayPass(LContext context, OverlayPass &pass) {
+void destroyOverlayPass(svet::renderer::LContext context, OverlayPass &pass) {
   destroyDescriptorSet(context, pass.set);
   destroyPipeline(context, pass.pipeline);
   destroyPipelineLayout(context, pass.pipelineLayout);
@@ -80,38 +83,23 @@ void destroyOverlayPass(LContext context, OverlayPass &pass) {
   destroyImage(context, pass.target);
 }
 
-void recordOverlayPass(LContext context, const OverlayPass &pass,
-                       const Scene &scene, DrawCommandIndexes &indexes,
-                       DrawCommand &drawCommand) {
+void recordOverlayPass(FrameData &frame, const OverlayPass &pass,
+                       const Scene &scene) {
+  using namespace svet::renderer;
+
   const ImageMetadata targetClearMeta{
-      ImageLayout::UNDEFINED, QueueOwnership::GRAPHICS,
+      ImageLayout::UNDEFINED, QueueOwnershipState::GRAPHICS,
       PipelineStage::TOP_OF_PIPE, ResourceAccess::NONE};
 
   const ImageMetadata computeTargetMeta{
-      ImageLayout::GENERAL, QueueOwnership::GRAPHICS,
+      ImageLayout::GENERAL, QueueOwnershipState::GRAPHICS,
       PipelineStage::COMPUTE_SHADER, ResourceAccess::SHADER_WRITE};
 
-  drawCommand.operations[indexes.operationIndex++] = {
-      DrawOperationType::IMAGE_BARRIER, indexes.imageBarrierIndex};
-  drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-      pass.target, targetClearMeta, computeTargetMeta};
+  cmdImageBarrier(frame.context, frame.drawProcessor, pass.target,
+                  targetClearMeta, computeTargetMeta);
+  cmdBindPipeline(frame.drawProcessor, pass.pipeline);
+  cmdBindDescriptorSet(frame.drawProcessor, pass.set, 0);
 
-  drawCommand.operations[indexes.operationIndex++] = {
-      DrawOperationType::BIND_PIPELINE, indexes.pipelineIndex};
-  drawCommand.pipelines[indexes.pipelineIndex++] = pass.pipeline;
-
-  drawCommand.operations[indexes.operationIndex++] = {
-      DrawOperationType::BIND_DESCRIPTOR_SETS,
-      indexes.descriptorSetBindingIndex};
-  drawCommand.descriptorSetBindings[indexes.descriptorSetBindingIndex++] = {
-      pass.set, 0};
-
-  drawCommand.operations[indexes.operationIndex++] = {
-      DrawOperationType::DISPATCH, indexes.dispatchCallIndex};
-  drawCommand.dispatchCalls[indexes.dispatchCallIndex].groupCountX =
-      (pass.width + 15) / 16;
-  drawCommand.dispatchCalls[indexes.dispatchCallIndex].groupCountY =
-      (pass.height + 15) / 16;
-  drawCommand.dispatchCalls[indexes.dispatchCallIndex].groupCountZ = 1;
-  ++indexes.dispatchCallIndex;
+  cmdDispatch(frame.drawProcessor, (pass.width + 15) / 16,
+              (pass.height + 15) / 16);
 }

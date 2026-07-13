@@ -1,6 +1,12 @@
 #include "image-gen.h"
+#include "svet/renderer/staging.h"
 
-Image genCheckerPattern(LContext context, uint32_t width, uint32_t height) {
+svet::renderer::Image
+genCheckerPattern(svet::renderer::LContext context, uint32_t width,
+                  uint32_t height, svet::renderer::StagingBuffer stagingBuffer,
+                  svet::renderer::MemoryPool textureImagePool) {
+  using namespace svet::renderer;
+
   uint32_t imageWidth = width;
   uint32_t imageHeight = height;
   uint32_t pixelSize = sizeof(uint8_t) * 4;
@@ -22,43 +28,41 @@ Image genCheckerPattern(LContext context, uint32_t width, uint32_t height) {
       }
     }
   }
-  BufferSpecification stagingBufferSpec{};
-  stagingBufferSpec.size = imageDataSize;
-  stagingBufferSpec.source = BufferSource::CPU;
-  stagingBufferSpec.consumer = BufferConsumer::GPU;
-  stagingBufferSpec.frequency = BufferFrequency::STREAM;
-  stagingBufferSpec.usage = BufferUsage::TRANSFER_SRC;
-  stagingBufferSpec.initialOwnership = QueueOwnership::TRANSFER;
-  Buffer stagingBuffer = allocateBuffer(context, stagingBufferSpec);
-  uploadBufferData(context, stagingBuffer, imageData, 0, imageDataSize);
-  delete[] imageData;
 
   ImageMetadata meta;
   ImageSpecification imageSpec{};
   imageSpec.outMeta = &meta;
   imageSpec.width = imageWidth;
   imageSpec.height = imageHeight;
+  imageSpec.memoryPool = textureImagePool;
   imageSpec.pixelFormat = PixelFormat::UNORM8_RGBA;
   imageSpec.usage = ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED;
   imageSpec.tiling = ImageTiling::OPTIMAL;
+  imageSpec.initialOwnership = QueueOwnership::TRANSFER;
   Image image = createImage(context, imageSpec);
-  ImageDataCopySpecification copySpec{};
-  copySpec.image = image;
-  copySpec.imageMeta = meta;
-  copySpec.outImageMeta = &meta;
-  copySpec.stagingBuffer = stagingBuffer;
-  copySpec.bufferOffset = 0;
-  copySpec.width = imageWidth;
-  copySpec.height = imageHeight;
-  copySpec.finalOwnership = QueueOwnership::GRAPHICS;
-  copyImageData(context, copySpec);
-  graphicsAcquireImage(context, image, meta, nullptr);
-  destroyBuffer(context, stagingBuffer);
+  StagedUploadImageSpecification stagedUploadSpec{};
+  stagedUploadSpec.width = imageWidth;
+  stagedUploadSpec.height = imageHeight;
+  stagedUploadSpec.data = imageData;
+  stagedUploadSpec.pixelSize = pixelSize;
+  stagedUploadSpec.stagingBuffer = stagingBuffer;
+  stagedUploadSpec.destination = image;
+  stagedUploadSpec.destinationMeta = meta;
+  stagedUploadSpec.desiredLayout = ImageLayout::SHADER_READ_ONLY;
+  stagedUploadSpec.desiredOwnership = QueueOwnership::GRAPHICS;
+  stagedUploadImageData(context, stagedUploadSpec);
+
+  delete[] imageData;
 
   return image;
 }
 
-Image genGradient(LContext context, uint32_t width, uint32_t height) {
+svet::renderer::Image genGradient(svet::renderer::LContext context,
+                                  uint32_t width, uint32_t height,
+                                  svet::renderer::StagingBuffer stagingBuffer,
+                                  svet::renderer::MemoryPool textureImagePool) {
+  using namespace svet::renderer;
+
   uint8_t fourPixels[] = {
       0,   0,   0,   255, // pixel 0, 0
       255, 255, 255, 255, // pixel 1, 0
@@ -70,42 +74,38 @@ Image genGradient(LContext context, uint32_t width, uint32_t height) {
   uint32_t imageHeight = 2;
   uint32_t finalImageWidth = 400;
   uint32_t finalImageHeight = 400;
-  BufferSpecification stagingBufferSpec{};
-  stagingBufferSpec.size = sizeof(fourPixels);
-  stagingBufferSpec.source = BufferSource::CPU;
-  stagingBufferSpec.consumer = BufferConsumer::GPU;
-  stagingBufferSpec.frequency = BufferFrequency::STREAM;
-  stagingBufferSpec.usage = BufferUsage::TRANSFER_SRC;
-  stagingBufferSpec.initialOwnership = QueueOwnership::TRANSFER;
-  Buffer stagingBuffer = allocateBuffer(context, stagingBufferSpec);
-  uploadBufferData(context, stagingBuffer, fourPixels, 0, sizeof(fourPixels));
-
   ImageMetadata intermediateMeta;
   ImageSpecification imageSpec{};
   imageSpec.outMeta = &intermediateMeta;
   imageSpec.width = imageWidth;
   imageSpec.height = imageHeight;
+  // TODO: This means the intermediate texture memory will not be returned to
+  // the pool (pools cannot free right now)
+  imageSpec.memoryPool = textureImagePool;
   imageSpec.pixelFormat = PixelFormat::UNORM8_RGBA;
   imageSpec.usage =
       ImageUsage::TRANSFER_SRC | ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED;
   imageSpec.tiling = ImageTiling::OPTIMAL;
+  imageSpec.initialOwnership = QueueOwnership::TRANSFER;
   Image intermediateImage = createImage(context, imageSpec);
-  ImageDataCopySpecification copySpec{};
-  copySpec.image = intermediateImage;
-  copySpec.imageMeta = intermediateMeta;
-  copySpec.outImageMeta = &intermediateMeta;
-  copySpec.stagingBuffer = stagingBuffer;
-  copySpec.bufferOffset = 0;
-  copySpec.width = imageWidth;
-  copySpec.height = imageHeight;
-  copySpec.finalOwnership = QueueOwnership::GRAPHICS;
-  copyImageData(context, copySpec);
-  destroyBuffer(context, stagingBuffer);
+  StagedUploadImageSpecification stagedUploadSpec{};
+  stagedUploadSpec.width = imageWidth;
+  stagedUploadSpec.height = imageHeight;
+  stagedUploadSpec.data = fourPixels;
+  stagedUploadSpec.pixelSize = 4;
+  stagedUploadSpec.stagingBuffer = stagingBuffer;
+  stagedUploadSpec.destination = intermediateImage;
+  stagedUploadSpec.destinationMeta = intermediateMeta;
+  stagedUploadSpec.outDestinationMeta = &intermediateMeta;
+  stagedUploadSpec.desiredLayout = ImageLayout::TRANSFER_SRC;
+  stagedUploadSpec.desiredOwnership = QueueOwnership::TRANSFER;
+  stagedUploadImageData(context, stagedUploadSpec);
 
   ImageMetadata meta;
   imageSpec.outMeta = &meta;
   imageSpec.width = finalImageWidth;
   imageSpec.height = finalImageHeight;
+  imageSpec.memoryPool = textureImagePool;
   imageSpec.usage = ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED;
   Image image = createImage(context, imageSpec);
 
@@ -116,55 +116,55 @@ Image genGradient(LContext context, uint32_t width, uint32_t height) {
   blitSpec.destinationMeta = meta;
   blitSpec.outDestinationMeta = &meta;
   blitSpec.filter = SampleFilter::LINEAR;
+  blitSpec.desiredSrcLayout = ImageLayout::UNDEFINED;
+  blitSpec.desiredSrcOwnership = QueueOwnership::TRANSFER;
+  blitSpec.desiredDstLayout = ImageLayout::SHADER_READ_ONLY;
+  blitSpec.desiredDstOwnership = QueueOwnership::GRAPHICS;
   blitImage(context, blitSpec);
-  graphicsAcquireImage(context, image, meta, nullptr);
 
   destroyImage(context, intermediateImage);
 
   return image;
 }
 
-Image genDefaultNormal(LContext context) {
-  return genSinglePixel(context, 127, 127, 255);
+svet::renderer::Image
+genDefaultNormal(svet::renderer::LContext context,
+                 svet::renderer::StagingBuffer stagingBuffer,
+                 svet::renderer::MemoryPool textureImagePool) {
+  return genSinglePixel(context, 127, 127, 255, stagingBuffer,
+                        textureImagePool);
 }
 
-Image genSinglePixel(LContext context, uint8_t r, uint8_t g, uint8_t b) {
-  uint8_t pixel[] = {r, g, b, 255};
+svet::renderer::Image
+genSinglePixel(svet::renderer::LContext context, uint8_t r, uint8_t g,
+               uint8_t b, svet::renderer::StagingBuffer stagingBuffer,
+               svet::renderer::MemoryPool textureImagePool) {
+  using namespace svet::renderer;
 
-  BufferMetadata stagingBufferMeta;
-  BufferSpecification stagingBufferSpec{};
-  stagingBufferSpec.size = sizeof(pixel);
-  stagingBufferSpec.source = BufferSource::CPU;
-  stagingBufferSpec.consumer = BufferConsumer::GPU;
-  stagingBufferSpec.frequency = BufferFrequency::STREAM;
-  stagingBufferSpec.usage = BufferUsage::TRANSFER_SRC;
-  stagingBufferSpec.outMeta = &stagingBufferMeta;
-  stagingBufferSpec.initialOwnership = QueueOwnership::TRANSFER;
-  Buffer stagingBuffer = allocateBuffer(context, stagingBufferSpec);
-  uploadBufferData(context, stagingBuffer, pixel, 0, sizeof(pixel));
+  uint8_t pixel[] = {r, g, b, 255};
 
   ImageMetadata meta;
   ImageSpecification imageSpec{};
   imageSpec.outMeta = &meta;
   imageSpec.width = 1;
   imageSpec.height = 1;
+  imageSpec.memoryPool = textureImagePool;
   imageSpec.pixelFormat = PixelFormat::UNORM8_RGBA;
   imageSpec.usage = ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED;
   imageSpec.tiling = ImageTiling::OPTIMAL;
+  imageSpec.initialOwnership = QueueOwnership::TRANSFER;
   Image image = createImage(context, imageSpec);
-  ImageDataCopySpecification copySpec{};
-  copySpec.image = image;
-  copySpec.imageMeta = meta;
-  copySpec.outImageMeta = &meta;
-  copySpec.stagingBuffer = stagingBuffer;
-  copySpec.stagingBufferMeta = stagingBufferMeta;
-  copySpec.bufferOffset = 0;
-  copySpec.width = 1;
-  copySpec.height = 1;
-  copySpec.finalOwnership = QueueOwnership::GRAPHICS;
-  copyImageData(context, copySpec);
-  graphicsAcquireImage(context, image, meta, nullptr);
-  destroyBuffer(context, stagingBuffer);
+  StagedUploadImageSpecification stagedUploadSpec{};
+  stagedUploadSpec.width = 1;
+  stagedUploadSpec.height = 1;
+  stagedUploadSpec.data = pixel;
+  stagedUploadSpec.pixelSize = 4;
+  stagedUploadSpec.stagingBuffer = stagingBuffer;
+  stagedUploadSpec.destination = image;
+  stagedUploadSpec.destinationMeta = meta;
+  stagedUploadSpec.desiredLayout = ImageLayout::SHADER_READ_ONLY;
+  stagedUploadSpec.desiredOwnership = QueueOwnership::GRAPHICS;
+  stagedUploadImageData(context, stagedUploadSpec);
 
   return image;
 }

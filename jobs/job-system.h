@@ -1,5 +1,6 @@
 #pragma once
-#include "renderer.h"
+#include "svet/renderer/context.h"
+#include "svet/renderer/staging.h"
 
 #include <ring-buffer/spsc_rb.hpp>
 
@@ -40,10 +41,14 @@ struct JobResult {
   JobResultCode code;
 };
 
+// 4K RGBA image
+constexpr const uint32_t maxStagedUploadSize =
+    4096 * 4096 * sizeof(uint8_t) * 4;
 constexpr const uint32_t maxJobCount = 512;
 using JobRequests =
     concurrency::spsc_ring_buffer_stack<JobRequest, maxJobCount>;
 using JobResults = concurrency::spsc_ring_buffer_stack<JobResult, maxJobCount>;
 
-void consume(LContext context, std::atomic<bool> &stop, JobRequests &jobFeed,
-             JobResults &resultOutput);
+void consume(svet::renderer::LContext context, std::atomic<bool> &stop,
+             JobRequests &jobFeed, JobResults &resultOutput,
+             svet::renderer::StagingBuffer stagingBuffer);

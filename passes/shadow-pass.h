@@ -1,6 +1,9 @@
 #pragma once
-#include "renderer.h"
-#include "types.h"
+#include "pipelines/frame.h"
+#include "svet/renderer/context.h"
+#include "svet/renderer/image.h"
+#include "svet/renderer/pipeline.h"
+#include "svet/renderer/render-pass.h"
 
 struct Scene;
 
@@ -10,24 +13,24 @@ struct Scene;
 // Fixes here:
 // https://developer.nvidia.com/gpugems/gpugems/part-ii-lighting-and-shadows/chapter-14-perspective-shadow-maps-care-and-feeding
 struct ShadowPass {
-  Image target;
+  svet::renderer::Image target;
 
-  PipelineLayout pipelineLayout;
-  Pipeline pipeline;
+  svet::renderer::PipelineLayout pipelineLayout;
+  svet::renderer::Pipeline pipeline;
 
-  RenderPass renderPass;
+  svet::renderer::RenderPass renderPass;
 };
 
 struct ShadowPassSpecification {
   uint32_t width;
   uint32_t height;
-  PixelFormat depthPixelFormat;
+  svet::renderer::MemoryPool targetImagePool;
+  svet::renderer::PixelFormat depthPixelFormat;
   const char *vertFile;
   const char *fragFile;
 };
-ShadowPass createShadowPass(LContext context,
+ShadowPass createShadowPass(svet::renderer::LContext context,
                             const ShadowPassSpecification &spec);
-void destroyShadowPass(LContext context, ShadowPass &pass);
-void recordShadowPass(LContext context, const ShadowPass &pass,
-                      const Scene &scene, DrawCommandIndexes &indexes,
-                      DrawCommand &drawCommand);
+void destroyShadowPass(svet::renderer::LContext context, ShadowPass &pass);
+void recordShadowPass(FrameData &frame, const ShadowPass &pass,
+                      const Scene &scene);

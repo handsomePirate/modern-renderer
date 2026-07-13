@@ -1,16 +1,18 @@
 #include "flycam.h"
 #include "job-manager.h"
 #include "pipelines/deferred-pipeline.h"
+#include "pipelines/frame.h"
 #include "pipelines/geometry-pipeline.h"
-#include "renderer.h"
 #include "scene.h"
+#include "svet/renderer/memory.h"
+#include "svet/renderer/staging.h"
+#include "svet/renderer/swapchain.h"
 #include "time-keeping.h"
 
 #include <SDL3/SDL.h>
 #include <ring-buffer/spsc_rb.hpp>
 
 #include <print>
-#include <vector>
 
 // Helper for RenderDoc-only crash debugging
 #define PAUSE_HERE                                                             \
@@ -24,55 +26,17 @@
   }
 
 int main(int argc, char *argv[]) {
-  if (argc != 2) {
-    std::println(
-        "The program requires exactly one argument (path to asset), {} "
-        "given.\nTo get the model that this program was tested on, clone "
-        "'https://github.com/KhronosGroup/glTF-Sample-Assets.git' and use "
-        "'glTF-Sample-Assets/2.0/Sponza/glTF/Sponza.gltf'",
-        argc - 1);
+  using namespace svet::renderer;
+
+  auto modelsPath = std::getenv("GLTF_MODELS_PATH");
+  if (not modelsPath) {
+    std::println("Please set GLTF_MODELS_PATH environment variable to where "
+                 "you have checked out the Khronos Sample repo "
+                 "(https://github.com/KhronosGroup/glTF-Sample-Models.git)");
+    std::println("Windows>> $env:GLTF_MODELS_PATH = \"path\"");
+    std::println("Linux>> export GLTF_MODELS_PATH=\"path\"");
     return 1;
   }
-
-  // Preallocate memory for draw commands to avoid allocating in the render loop
-  const uint32_t maxDrawOperations = 16384;
-  std::vector<DrawOperation> drawOperations(maxDrawOperations);
-  const uint32_t maxRenderPasses = 8;
-  std::vector<RenderPass> renderPasses(maxRenderPasses);
-  const uint32_t maxPipelines = 32;
-  std::vector<Pipeline> pipelines(maxPipelines);
-  const uint32_t maxDescriptorSetBindings = 1024;
-  std::vector<DescriptorSetBinding> descriptorSetBindings(
-      maxDescriptorSetBindings);
-  const uint32_t maxPushConstants = 1024;
-  std::vector<PushConstantUpload> pushConstants(maxPushConstants);
-  const uint32_t maxImageBarriers = 512;
-  std::vector<ImageBarrier> imageBarriers(maxImageBarriers);
-  const uint32_t maxBufferBarriers = 512;
-  std::vector<BufferBarrier> bufferBarriers(maxBufferBarriers);
-  const uint32_t maxVertexBindings = 4096;
-  std::vector<VertexBinding> vertexBindings(maxVertexBindings);
-  const uint32_t maxIndexBindings = 4096;
-  std::vector<IndexBinding> indexBindings(maxIndexBindings);
-  const uint32_t maxDrawCalls = 4096;
-  std::vector<DrawCall> drawCalls(maxDrawCalls);
-  const uint32_t maxDispatchCalls = 1024;
-  std::vector<DispatchCall> dispatchCalls(maxDispatchCalls);
-  const uint32_t maxBlitCalls = 1024;
-  std::vector<BlitCall> blitCalls(maxBlitCalls);
-  DrawCommand drawCommand{};
-  drawCommand.operations = drawOperations.data();
-  drawCommand.renderPasses = renderPasses.data();
-  drawCommand.pipelines = pipelines.data();
-  drawCommand.descriptorSetBindings = descriptorSetBindings.data();
-  drawCommand.pushConstants = pushConstants.data();
-  drawCommand.imageBarriers = imageBarriers.data();
-  drawCommand.bufferBarriers = bufferBarriers.data();
-  drawCommand.vertexBindings = vertexBindings.data();
-  drawCommand.indexBindings = indexBindings.data();
-  drawCommand.drawCalls = drawCalls.data();
-  drawCommand.dispatchCalls = dispatchCalls.data();
-  drawCommand.blitCalls = blitCalls.data();
 
   const uint32_t width = 1600, height = 1000;
   SDL_Init(SDL_INIT_VIDEO);
@@ -82,28 +46,79 @@ int main(int argc, char *argv[]) {
   auto context = init(window, rendererSpec);
 
   //
+  // MEMORY POOL
+  //
+  MemoryPool uniformBufferPool;
+  {
+    MemoryPoolSpecification uniformBufferPoolSpec{};
+    uniformBufferPoolSpec.bufferUsage = BufferUsage::UNIFORM;
+    uniformBufferPoolSpec.properties =
+        MemoryProperties::HOST_VISIBLE | MemoryProperties::HOST_COHERENT;
+    uniformBufferPoolSpec.size = 512;
+    uniformBufferPool = createMemoryPool(context, uniformBufferPoolSpec);
+  }
+
+  MemoryPool geometryBufferPool;
+  {
+    MemoryPoolSpecification geometryPoolSpec{};
+    geometryPoolSpec.bufferUsage =
+        BufferUsage::VERTEX | BufferUsage::INDEX | BufferUsage::TRANSFER_DST;
+    geometryPoolSpec.properties = MemoryProperties::DEVICE_LOCAL;
+    // 32MB
+    geometryPoolSpec.size = 33554432;
+    geometryBufferPool = createMemoryPool(context, geometryPoolSpec);
+  }
+
+  MemoryPool textureImagePool;
+  {
+    MemoryPoolSpecification texturePoolSpec{};
+    texturePoolSpec.imageUsage = ImageUsage::SAMPLED;
+    texturePoolSpec.imageTiling = ImageTiling::OPTIMAL;
+    texturePoolSpec.properties = MemoryProperties::DEVICE_LOCAL;
+    // 512MB
+    texturePoolSpec.size = 536870912;
+    textureImagePool = createMemoryPool(context, texturePoolSpec);
+  }
+
+  MemoryPool targetImagePool;
+  {
+    MemoryPoolSpecification targetPoolSpec{};
+    // This usage seems to be enough for all images right now, but I need to
+    // look into it.
+    targetPoolSpec.imageUsage = ImageUsage::SAMPLED;
+    targetPoolSpec.imageTiling = ImageTiling::OPTIMAL;
+    targetPoolSpec.properties = MemoryProperties::DEVICE_LOCAL;
+    // 128MB
+    targetPoolSpec.size = 134217728;
+    targetImagePool = createMemoryPool(context, targetPoolSpec);
+  }
+
+  //
+  // STAGING BUFFER
+  //
+  StagingBuffer stagingBuffer =
+      createStagingBuffer(context, maxStagedUploadSize);
+
+  //
   // DESCRIPTOR POOL
   //
   // TODO: Could go bindless, but I want to stay basic where possible
-  DescriptorPool descriptorPool;
   DescriptorPoolSpecification descriptorPoolSpec{};
   descriptorPoolSpec.maxSets += 512;
   descriptorPoolSpec.uniformBufferCount = 256;
   descriptorPoolSpec.combinedSamplerCount = 256;
   descriptorPoolSpec.sampledImageCount = 256;
   descriptorPoolSpec.storageImageCount = 256;
-  descriptorPool = createDescriptorPool(context, descriptorPoolSpec);
-
-  //
-  // JOB MANAGER
-  //
-  JobManager jobManager;
-  initJobManager(jobManager, context);
+  DescriptorPool descriptorPool =
+      createDescriptorPool(context, descriptorPoolSpec);
 
   //
   // SCENE
   //
   SceneSpecification sceneSpec{};
+  sceneSpec.uniformBufferPool = uniformBufferPool;
+  sceneSpec.textureImagePool = textureImagePool;
+  sceneSpec.stagingBuffer = stagingBuffer;
   sceneSpec.descriptorPool = descriptorPool;
   Scene scene = createScene(context, sceneSpec);
   scene.camera.position = glm::vec3(-350, 0, 50);
@@ -117,15 +132,25 @@ int main(int argc, char *argv[]) {
   scene.sun.color = glm::vec3(1);
 
   //
+  // JOB MANAGER
+  //
+  JobManager jobManager;
+  initJobManager(jobManager, context, stagingBuffer);
+
+  //
   // MODELS
   //
+  std::string sponzaPath =
+      std::format("{}/2.0/Sponza/glTF/Sponza.gltf", modelsPath);
   {
     AssimpLoadJob sponzaLoad{};
-    sponzaLoad.file = argv[1];
+    sponzaLoad.file = sponzaPath.c_str();
     sponzaLoad.rotateZUp = true;
     sponzaLoad.scale = 1.f;
     sponzaLoad.descriptorPool = descriptorPool;
     sponzaLoad.sampler = scene.sampler;
+    sponzaLoad.bufferPool = geometryBufferPool;
+    sponzaLoad.imagePool = textureImagePool;
     appendAssimpLoadJob(jobManager, std::move(sponzaLoad));
   }
 
@@ -144,22 +169,23 @@ int main(int argc, char *argv[]) {
   DeferredPipelineSpecification deferredPipelineSpec{};
   deferredPipelineSpec.width = width;
   deferredPipelineSpec.height = height;
+  deferredPipelineSpec.uniformBufferPool = uniformBufferPool;
+  deferredPipelineSpec.targetImagePool = targetImagePool;
   deferredPipelineSpec.shadowMapResolution = 2048;
   deferredPipelineSpec.shadowMapPixelFormat = PixelFormat::UNORM16_D;
   deferredPipelineSpec.colorPixelFormat = colorPixelFormat;
   deferredPipelineSpec.positionPixelFormat = positionPixelFormat;
   deferredPipelineSpec.depthPixelFormat = depthPixelFormat;
   deferredPipelineSpec.descriptorPool = descriptorPool;
-  deferredPipelineSpec.drawProcessor = drawProcessor;
   DeferredPipeline deferredPipeline =
       createDeferredPipeline(context, deferredPipelineSpec);
 
   GeometryPipelineSpecification geometryPipelineSpec{};
   geometryPipelineSpec.width = width;
   geometryPipelineSpec.height = height;
+  geometryPipelineSpec.targetImagePool = targetImagePool;
   geometryPipelineSpec.colorPixelFormat = colorPixelFormat;
   geometryPipelineSpec.depthPixelFormat = depthPixelFormat;
-  geometryPipelineSpec.drawProcessor = drawProcessor;
   GeometryPipeline geometryPipeline =
       createGeometryPipeline(context, geometryPipelineSpec);
 
@@ -179,6 +205,9 @@ int main(int argc, char *argv[]) {
   //
   // RENDER LOOP
   //
+  FrameData frame;
+  frame.context = context;
+  frame.drawProcessor = drawProcessor;
   bool shouldEnd = false;
   int seconds = 0;
   int frames = 0;
@@ -190,11 +219,12 @@ int main(int argc, char *argv[]) {
     GEOMETRY,
     DEFERRED,
     MAX,
-  } drawnPipeline = DrawnPipeline::DEFERRED;
+  } drawnPipeline = DrawnPipeline::GEOMETRY;
   float renderingStartSeconds = getTimeSeconds();
   while (not shouldEnd) {
-    float timeSeconds = getTimeSeconds() - renderingStartSeconds;
-    if (timeSeconds > seconds + 1) {
+    frame.memory.reset();
+    frame.timeSeconds = getTimeSeconds() - renderingStartSeconds;
+    if (frame.timeSeconds > seconds + 1) {
       std::println("FPS: {}", frames);
       frames = 0;
       ++seconds;
@@ -249,20 +279,17 @@ int main(int argc, char *argv[]) {
     //
     Image drawTarget;
     ImageMetadata drawTargetMeta;
-    DrawCommandIndexes indexes{};
     switch (drawnPipeline) {
     case DrawnPipeline::GEOMETRY:
-      geometryPipelineDrawFrame(context, geometryPipeline, timeSeconds,
-                                drawCommand, indexes, scene, drawTarget,
+      geometryPipelineDrawFrame(frame, geometryPipeline, scene, drawTarget,
                                 drawTargetMeta);
       break;
     case DrawnPipeline::DEFERRED:
-      deferredPipelineDrawFrame(context, deferredPipeline, timeSeconds,
-                                drawCommand, indexes, scene, drawTarget,
+      deferredPipelineDrawFrame(frame, deferredPipeline, scene, drawTarget,
                                 drawTargetMeta);
       break;
     default:
-      break;
+      std::println("Unknown pipeline type requested.");
     }
 
     //
@@ -271,7 +298,7 @@ int main(int argc, char *argv[]) {
     present(context, swapchain, drawTarget, drawTargetMeta, nullptr);
     ++frames;
 
-    timeDelta = (getTimeSeconds() - renderingStartSeconds) - timeSeconds;
+    timeDelta = (getTimeSeconds() - renderingStartSeconds) - frame.timeSeconds;
   }
 
   stopJobManager(jobManager);
@@ -287,6 +314,15 @@ int main(int argc, char *argv[]) {
   destroyDrawProcessor(context, drawProcessor);
   destroyScene(context, scene);
   destroyDescriptorPool(context, descriptorPool);
+  destroyStagingBuffer(context, stagingBuffer);
+  std::print("TARGETS - ");
+  destroyMemoryPool(context, targetImagePool);
+  std::print("TEXTURES - ");
+  destroyMemoryPool(context, textureImagePool);
+  std::print("GEOMETRY - ");
+  destroyMemoryPool(context, geometryBufferPool);
+  std::print("UNIFORMS - ");
+  destroyMemoryPool(context, uniformBufferPool);
   shutdown(context);
 
   SDL_DestroyWindow(window);

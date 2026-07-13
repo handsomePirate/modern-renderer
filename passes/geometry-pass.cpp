@@ -2,8 +2,10 @@
 #include "file.h"
 #include "scene.h"
 
-GeometryPass createGeometryPass(LContext context,
+GeometryPass createGeometryPass(svet::renderer::LContext context,
                                 const GeometryPassSpecification &spec) {
+  using namespace svet::renderer;
+
   GeometryPass pass{};
 
   if (spec.colorTarget) {
@@ -13,6 +15,7 @@ GeometryPass createGeometryPass(LContext context,
     ImageSpecification graphicsRenderTargetSpec{};
     graphicsRenderTargetSpec.width = spec.width;
     graphicsRenderTargetSpec.height = spec.height;
+    graphicsRenderTargetSpec.memoryPool = spec.targetImagePool;
     graphicsRenderTargetSpec.pixelFormat = spec.colorPixelFormat;
     graphicsRenderTargetSpec.usage = ImageUsage::TRANSFER_SRC |
                                      ImageUsage::SAMPLED |
@@ -28,6 +31,7 @@ GeometryPass createGeometryPass(LContext context,
     ImageSpecification depthRenderTargetSpec{};
     depthRenderTargetSpec.width = spec.width;
     depthRenderTargetSpec.height = spec.height;
+    depthRenderTargetSpec.memoryPool = spec.targetImagePool;
     depthRenderTargetSpec.pixelFormat = spec.depthPixelFormat;
     // We use this image as a render target and blit from it to the swapchain
     depthRenderTargetSpec.usage = ImageUsage::TRANSFER_SRC |
@@ -141,7 +145,7 @@ GeometryPass createGeometryPass(LContext context,
   return pass;
 }
 
-void destroyGeometryPass(LContext context, GeometryPass &pass) {
+void destroyGeometryPass(svet::renderer::LContext context, GeometryPass &pass) {
   destroyRenderPass(context, pass.renderPass);
   destroyPipeline(context, pass.pipeline);
   destroyPipelineLayout(context, pass.pipelineLayout);
@@ -151,47 +155,38 @@ void destroyGeometryPass(LContext context, GeometryPass &pass) {
     destroyImage(context, pass.colorTarget);
 }
 
-void recordGeometryPass(LContext context, const GeometryPass &pass,
-                        const Scene &scene, DrawCommandIndexes &indexes,
-                        DrawCommand &drawCommand) {
+void recordGeometryPass(FrameData &frame, const GeometryPass &pass,
+                        const Scene &scene) {
+  using namespace svet::renderer;
+
   {
     const ImageMetadata targetClearMeta{
-        ImageLayout::UNDEFINED, QueueOwnership::GRAPHICS,
+        ImageLayout::UNDEFINED, QueueOwnershipState::GRAPHICS,
         PipelineStage::FRAGMENT_SHADER, ResourceAccess::SHADER_READ};
 
     const ImageMetadata renderTargetColorMeta{
-        ImageLayout::COLOR_RENDER_TARGET, QueueOwnership::GRAPHICS,
+        ImageLayout::COLOR_RENDER_TARGET, QueueOwnershipState::GRAPHICS,
         PipelineStage::RENDER_TARGET_OUTPUT,
         ResourceAccess::RENDER_TARGET_WRITE};
 
     const ImageMetadata renderTargetDepthMeta{
-        ImageLayout::DEPTH_RENDER_TARGET, QueueOwnership::GRAPHICS,
+        ImageLayout::DEPTH_RENDER_TARGET, QueueOwnershipState::GRAPHICS,
         PipelineStage::EARLY_FRAGMENT_TESTS,
         ResourceAccess::DEPTH_STENCIL_READ |
             ResourceAccess::DEPTH_STENCIL_WRITE};
 
-    drawCommand.operations[indexes.operationIndex++] = {
-        DrawOperationType::IMAGE_BARRIER, indexes.imageBarrierIndex, 2};
-    drawCommand.operations[indexes.operationIndex++] = {
-        DrawOperationType::BEGIN_RENDER_PASS, indexes.renderPassIndex};
-    drawCommand.operations[indexes.operationIndex++] = {
-        DrawOperationType::BIND_PIPELINE, indexes.pipelineIndex};
-
-    drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-        pass.colorTarget, targetClearMeta, renderTargetColorMeta};
-    drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-        pass.depthTarget, targetClearMeta, renderTargetDepthMeta};
-
-    drawCommand.renderPasses[indexes.renderPassIndex] = pass.renderPass;
-    drawCommand.pipelines[indexes.pipelineIndex++] = pass.pipeline;
+    ImageBarrier barriers[] = {
+        {pass.colorTarget, targetClearMeta, renderTargetColorMeta},
+        {pass.depthTarget, targetClearMeta, renderTargetDepthMeta},
+    };
+    cmdImageBarriers(frame.context, frame.drawProcessor, barriers,
+                     std::size(barriers));
+    cmdBeginRenderPass(frame.drawProcessor, pass.renderPass);
+    cmdBindPipeline(frame.drawProcessor, pass.pipeline);
   }
 
   {
-    drawCommand.operations[indexes.operationIndex++] = {
-        DrawOperationType::BIND_DESCRIPTOR_SETS,
-        indexes.descriptorSetBindingIndex};
-    drawCommand.descriptorSetBindings[indexes.descriptorSetBindingIndex++] = {
-        scene.cameraSet, 0};
+    cmdBindDescriptorSet(frame.drawProcessor, scene.cameraSet);
 
     for (int i = 0; i < scene.meshes.size(); ++i) {
       uint32_t positionsIndex = UINT32_MAX;
@@ -213,47 +208,26 @@ void recordGeometryPass(LContext context, const GeometryPass &pass,
           positionsIndex != UINT32_MAX && normalsIndex != UINT32_MAX;
       bool isIndexedDraw = indexesIndex != UINT32_MAX;
       if (shouldDraw) {
-        drawCommand.operations[indexes.operationIndex++] = {
-            DrawOperationType::BIND_VERTEX_BUFFER, indexes.vertexBindingIndex,
-            2};
+        const auto &posAttr = scene.meshes[i].vertexAttributes[positionsIndex];
+        const auto &normAttr = scene.meshes[i].vertexAttributes[normalsIndex];
+        VertexBinding vertexBindings[] = {
+            {scene.buffers[posAttr.buffer], 0, posAttr.offset},
+            {scene.buffers[normAttr.buffer], 1, normAttr.offset},
+        };
+        cmdBindVertexAttribs(frame.drawProcessor, vertexBindings,
+                             std::size(vertexBindings));
 
         if (isIndexedDraw) {
-          drawCommand.operations[indexes.operationIndex++] = {
-              DrawOperationType::BIND_INDEX_BUFFER, indexes.indexBindingIndex};
-          drawCommand.indexBindings[indexes.indexBindingIndex].buffer =
-              scene.buffers
-                  [scene.meshes[i].vertexAttributes[indexesIndex].buffer];
-          drawCommand.indexBindings[indexes.indexBindingIndex].offset =
-              scene.meshes[i].vertexAttributes[indexesIndex].offset;
-          ++indexes.indexBindingIndex;
+          const auto &indAttr = scene.meshes[i].vertexAttributes[indexesIndex];
+          cmdBindIndexBuffer(frame.drawProcessor, scene.buffers[indAttr.buffer],
+                             indAttr.offset);
         }
 
-        drawCommand.operations[indexes.operationIndex++] = {
-            DrawOperationType::DRAW, indexes.drawCallIndex};
-
-        drawCommand.vertexBindings[indexes.vertexBindingIndex].buffer =
-            scene.buffers
-                [scene.meshes[i].vertexAttributes[positionsIndex].buffer];
-        drawCommand.vertexBindings[indexes.vertexBindingIndex].binding = 0;
-        drawCommand.vertexBindings[indexes.vertexBindingIndex].offset =
-            scene.meshes[i].vertexAttributes[positionsIndex].offset;
-        ++indexes.vertexBindingIndex;
-
-        drawCommand.vertexBindings[indexes.vertexBindingIndex].buffer =
-            scene
-                .buffers[scene.meshes[i].vertexAttributes[normalsIndex].buffer];
-        drawCommand.vertexBindings[indexes.vertexBindingIndex].binding = 1;
-        drawCommand.vertexBindings[indexes.vertexBindingIndex].offset =
-            scene.meshes[i].vertexAttributes[normalsIndex].offset;
-        ++indexes.vertexBindingIndex;
-
-        drawCommand.drawCalls[indexes.drawCallIndex++] = {
-            scene.meshes[i].elementCount, scene.meshes[i].instanceCount,
-            isIndexedDraw};
+        cmdDrawCall(frame.drawProcessor, scene.meshes[i].elementCount,
+                    scene.meshes[i].instanceCount, isIndexedDraw);
       }
     }
   }
 
-  drawCommand.operations[indexes.operationIndex++] = {
-      DrawOperationType::END_RENDER_PASS, indexes.renderPassIndex++};
+  cmdEndRenderPass(frame.drawProcessor);
 }

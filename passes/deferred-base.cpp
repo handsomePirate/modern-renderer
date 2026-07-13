@@ -3,14 +3,17 @@
 #include "scene.h"
 
 DeferredBasePass
-createDeferredBasePass(LContext context,
+createDeferredBasePass(svet::renderer::LContext context,
                        const DeferredBasePassSpecification &spec) {
+  using namespace svet::renderer;
+
   DeferredBasePass pass{};
 
   {
     ImageSpecification graphicsRenderTargetSpec{};
     graphicsRenderTargetSpec.width = spec.width;
     graphicsRenderTargetSpec.height = spec.height;
+    graphicsRenderTargetSpec.memoryPool = spec.targetImagePool;
     graphicsRenderTargetSpec.pixelFormat = spec.positionPixelFormat;
     graphicsRenderTargetSpec.usage = ImageUsage::TRANSFER_SRC |
                                      ImageUsage::SAMPLED |
@@ -26,6 +29,7 @@ createDeferredBasePass(LContext context,
     ImageSpecification depthRenderTargetSpec{};
     depthRenderTargetSpec.width = spec.width;
     depthRenderTargetSpec.height = spec.height;
+    depthRenderTargetSpec.memoryPool = spec.targetImagePool;
     depthRenderTargetSpec.pixelFormat = spec.depthPixelFormat;
     // We use this image as a render target and blit from it to the swapchain
     depthRenderTargetSpec.usage = ImageUsage::TRANSFER_SRC |
@@ -197,7 +201,8 @@ createDeferredBasePass(LContext context,
   return pass;
 }
 
-void destroyDeferredBasePass(LContext context, DeferredBasePass &pass) {
+void destroyDeferredBasePass(svet::renderer::LContext context,
+                             DeferredBasePass &pass) {
   destroyRenderPass(context, pass.renderPass);
   destroyPipeline(context, pass.pipeline);
   destroyPipelineLayout(context, pass.pipelineLayout);
@@ -208,65 +213,43 @@ void destroyDeferredBasePass(LContext context, DeferredBasePass &pass) {
   destroyImage(context, pass.gBuffer[0]);
 }
 
-void recordDeferredBasePass(LContext context, const DeferredBasePass &pass,
-                            const Scene &scene, DrawCommandIndexes &indexes,
-                            DrawCommand &drawCommand) {
+void recordDeferredBasePass(FrameData &frame, const DeferredBasePass &pass,
+                            const Scene &scene) {
+  using namespace svet::renderer;
+
   {
     const ImageMetadata targetClearMeta{
-        ImageLayout::UNDEFINED, QueueOwnership::GRAPHICS,
+        ImageLayout::UNDEFINED, QueueOwnershipState::GRAPHICS,
         PipelineStage::FRAGMENT_SHADER, ResourceAccess::SHADER_READ};
 
     const ImageMetadata renderTargetColorMeta{
-        ImageLayout::COLOR_RENDER_TARGET, QueueOwnership::GRAPHICS,
+        ImageLayout::COLOR_RENDER_TARGET, QueueOwnershipState::GRAPHICS,
         PipelineStage::RENDER_TARGET_OUTPUT,
         ResourceAccess::RENDER_TARGET_WRITE};
 
     const ImageMetadata renderTargetDepthMeta{
-        ImageLayout::DEPTH_RENDER_TARGET, QueueOwnership::GRAPHICS,
+        ImageLayout::DEPTH_RENDER_TARGET, QueueOwnershipState::GRAPHICS,
         PipelineStage::EARLY_FRAGMENT_TESTS,
         ResourceAccess::DEPTH_STENCIL_READ |
             ResourceAccess::DEPTH_STENCIL_WRITE};
 
-    drawCommand.operations[indexes.operationIndex++] = {
-        DrawOperationType::IMAGE_BARRIER, indexes.imageBarrierIndex, 5};
-    drawCommand.operations[indexes.operationIndex++] = {
-        DrawOperationType::BEGIN_RENDER_PASS, indexes.renderPassIndex};
-    drawCommand.operations[indexes.operationIndex++] = {
-        DrawOperationType::BIND_PIPELINE, indexes.pipelineIndex};
-
-    drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-        pass.gBuffer[0], targetClearMeta, renderTargetColorMeta};
-    drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-        pass.gBuffer[1], targetClearMeta, renderTargetColorMeta};
-    drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-        pass.gBuffer[2], targetClearMeta, renderTargetColorMeta};
-    drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-        pass.gBuffer[3], targetClearMeta, renderTargetColorMeta};
-    drawCommand.imageBarriers[indexes.imageBarrierIndex++] = {
-        pass.gBuffer[4], targetClearMeta, renderTargetDepthMeta};
-
-    drawCommand.renderPasses[indexes.renderPassIndex] = pass.renderPass;
-    drawCommand.pipelines[indexes.pipelineIndex++] = pass.pipeline;
+    ImageBarrier barriers[] = {
+        {pass.gBuffer[0], targetClearMeta, renderTargetColorMeta},
+        {pass.gBuffer[1], targetClearMeta, renderTargetColorMeta},
+        {pass.gBuffer[2], targetClearMeta, renderTargetColorMeta},
+        {pass.gBuffer[3], targetClearMeta, renderTargetColorMeta},
+        {pass.gBuffer[4], targetClearMeta, renderTargetDepthMeta},
+    };
+    cmdImageBarriers(frame.context, frame.drawProcessor, barriers,
+                     std::size(barriers));
+    cmdBeginRenderPass(frame.drawProcessor, pass.renderPass);
+    cmdBindPipeline(frame.drawProcessor, pass.pipeline);
   }
 
   {
-    drawCommand.operations[indexes.operationIndex++] = {
-        DrawOperationType::BIND_DESCRIPTOR_SETS,
-        indexes.descriptorSetBindingIndex};
-    drawCommand.descriptorSetBindings[indexes.descriptorSetBindingIndex++] = {
-        scene.cameraSet, 0};
-
-    drawCommand.operations[indexes.operationIndex++] = {
-        DrawOperationType::PUSH_CONSTANT, indexes.pushConstantIndex};
-    drawCommand.pushConstants[indexes.pushConstantIndex].visibility =
-        ShaderVisibility::VERTEX;
-    auto camPos =
-        (glm::vec3 *)drawCommand.pushConstants[indexes.pushConstantIndex].bytes;
-    *camPos = scene.camera.position;
-    drawCommand.pushConstants[indexes.pushConstantIndex].offset = 0;
-    drawCommand.pushConstants[indexes.pushConstantIndex].size =
-        sizeof(glm::vec3);
-    ++indexes.pushConstantIndex;
+    cmdBindDescriptorSet(frame.drawProcessor, scene.cameraSet);
+    cmdPushConstant(frame.drawProcessor, scene.camera.position,
+                    ShaderVisibility::VERTEX);
 
     auto filterMesh = [&](const SceneMesh &m) -> bool {
       uint32_t positionsIndex = UINT32_MAX;
@@ -286,8 +269,7 @@ void recordDeferredBasePass(LContext context, const DeferredBasePass &pass,
       }
 
       const SceneMaterial &material = scene.materials[m.material];
-      if (material.renderFlags &
-          (alphaBlendedMatFlag | binaryTransparencyMatFlag)) {
+      if (material.renderFlags & (OITMatFlag | ODTMatFlag)) {
         return false;
       }
       uint32_t albedoIndex = UINT32_MAX;
@@ -314,11 +296,15 @@ void recordDeferredBasePass(LContext context, const DeferredBasePass &pass,
                  material.descriptors[metalroughIndex].descriptorSet;
     };
 
-    std::vector<const SceneMesh *> meshRefs;
-    meshRefs.reserve((scene.meshes.size()));
+    // TODO: Count the opaque meshes first and allocate only as needed.
+    auto meshRefs = (const SceneMesh **)frame.memory.alloc(
+        scene.meshes.size() * sizeof(const SceneMesh *),
+        alignof(const SceneMesh *));
+
+    int mi = 0;
     for (int i = 0; i < scene.meshes.size(); ++i) {
       if (filterMesh(scene.meshes[i])) {
-        meshRefs.push_back(&scene.meshes[i]);
+        meshRefs[mi++] = &scene.meshes[i];
       }
     }
     struct SortByMaterial {
@@ -326,14 +312,14 @@ void recordDeferredBasePass(LContext context, const DeferredBasePass &pass,
         return m1->material < m2->material;
       }
     };
-    std::sort(meshRefs.begin(), meshRefs.end(),
+    std::sort(meshRefs, meshRefs + mi,
               [](const SceneMesh *m1, const SceneMesh *m2) {
                 return m1->material < m2->material;
               });
 
     uint32_t setIndex = UINT32_MAX;
     int currentMaterial = -1;
-    for (int i = 0; i < meshRefs.size(); ++i) {
+    for (int i = 0; i < mi; ++i) {
       uint32_t positionsIndex = UINT32_MAX;
       uint32_t normalsIndex = UINT32_MAX;
       uint32_t tangentsIndex = UINT32_MAX;
@@ -366,49 +352,34 @@ void recordDeferredBasePass(LContext context, const DeferredBasePass &pass,
             setIndex = material.descriptors[j].descriptorSet;
           }
         }
-        drawCommand.operations[indexes.operationIndex++] = {
-            DrawOperationType::BIND_DESCRIPTOR_SETS,
-            indexes.descriptorSetBindingIndex};
-
-        drawCommand.descriptorSetBindings[indexes.descriptorSetBindingIndex++] =
-            {scene.descriptorSets[setIndex], 1};
+        cmdBindDescriptorSet(frame.drawProcessor,
+                             scene.descriptorSets[setIndex], 1);
       }
       currentMaterial = meshRefs[i]->material;
 
-      drawCommand.operations[indexes.operationIndex++] = {
-          DrawOperationType::BIND_VERTEX_BUFFER, indexes.vertexBindingIndex, 4};
-
       const auto &posAttr = meshRefs[i]->vertexAttributes[positionsIndex];
-      drawCommand.vertexBindings[indexes.vertexBindingIndex++] = {
-          scene.buffers[posAttr.buffer], 0, posAttr.offset};
-
       const auto &normAttr = meshRefs[i]->vertexAttributes[normalsIndex];
-      drawCommand.vertexBindings[indexes.vertexBindingIndex++] = {
-          scene.buffers[normAttr.buffer], 1, normAttr.offset};
-
       const auto &tangAttr = meshRefs[i]->vertexAttributes[tangentsIndex];
-      drawCommand.vertexBindings[indexes.vertexBindingIndex++] = {
-          scene.buffers[tangAttr.buffer], 2, tangAttr.offset};
-
       const auto &texCoordsAttr = meshRefs[i]->vertexAttributes[texCoordsIndex];
-      drawCommand.vertexBindings[indexes.vertexBindingIndex++] = {
-          scene.buffers[texCoordsAttr.buffer], 3, texCoordsAttr.offset};
+      VertexBinding vertexBindings[] = {
+          {scene.buffers[posAttr.buffer], 0, posAttr.offset},
+          {scene.buffers[normAttr.buffer], 1, normAttr.offset},
+          {scene.buffers[tangAttr.buffer], 2, tangAttr.offset},
+          {scene.buffers[texCoordsAttr.buffer], 3, texCoordsAttr.offset},
+      };
+      cmdBindVertexAttribs(frame.drawProcessor, vertexBindings,
+                           std::size(vertexBindings));
 
       if (drawIndexed) {
-        drawCommand.operations[indexes.operationIndex++] = {
-            DrawOperationType::BIND_INDEX_BUFFER, indexes.indexBindingIndex};
         const auto &indAttr = meshRefs[i]->vertexAttributes[indexesIndex];
-        drawCommand.indexBindings[indexes.indexBindingIndex++] = {
-            scene.buffers[indAttr.buffer], indAttr.offset};
+        cmdBindIndexBuffer(frame.drawProcessor, scene.buffers[indAttr.buffer],
+                           indAttr.offset);
       }
 
-      drawCommand.operations[indexes.operationIndex++] = {
-          DrawOperationType::DRAW, indexes.drawCallIndex};
-      drawCommand.drawCalls[indexes.drawCallIndex++] = {
-          meshRefs[i]->elementCount, 1, drawIndexed};
+      cmdDrawCall(frame.drawProcessor, meshRefs[i]->elementCount, 1,
+                  drawIndexed);
     }
   }
 
-  drawCommand.operations[indexes.operationIndex++] = {
-      DrawOperationType::END_RENDER_PASS, indexes.renderPassIndex++};
+  cmdEndRenderPass(frame.drawProcessor);
 }

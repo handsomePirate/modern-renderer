@@ -1,11 +1,32 @@
 #pragma once
 #include <cstdint>
 
-// Determines where the buffer data originates
-enum class BufferSource { CPU, GPU };
+namespace svet::renderer {
 
-// Determines who reads the buffer
-enum class BufferConsumer { GPU, CPU };
+enum class MemoryProperties : uint8_t {
+  DEVICE_LOCAL = 1 << 0,
+  HOST_VISIBLE = 1 << 1,
+  HOST_COHERENT = 1 << 2,
+  HOST_CACHED = 1 << 3,
+};
+inline constexpr MemoryProperties operator|(MemoryProperties lhs,
+                                            MemoryProperties rhs) {
+  return static_cast<MemoryProperties>(static_cast<uint8_t>(lhs) |
+                                       static_cast<uint8_t>(rhs));
+}
+inline constexpr MemoryProperties operator&(MemoryProperties lhs,
+                                            MemoryProperties rhs) {
+  return static_cast<MemoryProperties>(static_cast<uint8_t>(lhs) &
+                                       static_cast<uint8_t>(rhs));
+}
+inline constexpr MemoryProperties operator^(MemoryProperties lhs,
+                                            MemoryProperties rhs) {
+  return static_cast<MemoryProperties>(static_cast<uint8_t>(lhs) ^
+                                       static_cast<uint8_t>(rhs));
+}
+inline constexpr MemoryProperties operator~(MemoryProperties flags) {
+  return static_cast<MemoryProperties>(~static_cast<uint8_t>(flags));
+}
 
 // What GPU operations use this buffer (can be multiple)
 enum class BufferUsage : uint16_t {
@@ -36,26 +57,19 @@ inline constexpr BufferUsage operator~(BufferUsage flags) {
   return static_cast<BufferUsage>(~static_cast<uint16_t>(flags));
 }
 
-// How often the data changes (tuning hint)
-enum class BufferFrequency {
-  STATIC,  // Written once or very infrequently
-  DYNAMIC, // Modified occasionally
-  STREAM   // Modified frequently in tight loops
-};
-
 enum class VertexFormat {
-  FLOAT,
-  FLOAT2,
-  FLOAT3,
-  FLOAT4,
-  INT,
-  INT2,
-  INT3,
-  INT4,
-  UINT,
-  UINT2,
-  UINT3,
-  UINT4
+  FLOAT = 100,
+  FLOAT2 = 103,
+  FLOAT3 = 106,
+  FLOAT4 = 109,
+  INT = 99,
+  INT2 = 102,
+  INT3 = 105,
+  INT4 = 108,
+  UINT = 98,
+  UINT2 = 101,
+  UINT3 = 104,
+  UINT4 = 107
 };
 
 enum class ResourceType {
@@ -115,39 +129,54 @@ enum class LoadOp { NONE, DONT_CARE, CLEAR, LOAD };
 enum class StoreOp { NONE, DONT_CARE, STORE };
 
 enum class PixelFormat {
-  UINT8_RGBA_SRGB,
-  UINT8_BGRA_SRGB,
-  UINT8_RGBA,
-  UINT8_BGRA,
-  UINT8_RGB_SRGB,
-  UINT8_BGR_SRGB,
-  UINT8_RGB,
-  UINT8_BGR,
-  UNORM8_RGBA,
-  UNORM8_BGRA,
-  UNORM8_RGB,
-  UNORM8_BGR,
-  UINT8_R_SRGB,
-  UINT8_R,
-  UNORM8_R,
-  UINT16_RGBA,
-  UINT16_RGB,
-  UNORM16_RGBA,
-  UNORM16_RGB,
-  UINT16_R,
-  UNORM16_R,
-  UINT32_RGBA,
-  UINT32_RGB,
-  UINT32_R,
-  FLOAT32_RGBA,
-  FLOAT32_RGB,
-  FLOAT32_R,
-  FLOAT16_RGBA,
-  FLOAT16_RGB,
-  FLOAT16_R,
-  UNORM16_D,
-  FLOAT32_D,
-  // TODO: Block compressions
+  UINT8_RGBA_SRGB = 43,
+  UINT8_BGRA_SRGB = 50,
+  UINT8_RGBA = 41,
+  UINT8_BGRA = 48,
+  UINT8_RGB_SRGB = 29,
+  UINT8_BGR_SRGB = 36,
+  UINT8_RGB = 27,
+  UINT8_BGR = 34,
+  UNORM8_RGBA = 37,
+  UNORM8_BGRA = 44,
+  UNORM8_RGB = 23,
+  UNORM8_BGR = 30,
+  UNORM8_R = 9,
+  UINT8_R = 13,
+  UINT8_R_SRGB = 15,
+  UINT16_RGB = 88,
+  UINT16_RGBA = 95,
+  UNORM16_R = 70,
+  UNORM16_RGB = 84,
+  UNORM16_RGBA = 91,
+  UINT16_R = 74,
+  UINT32_R = 98,
+  UINT32_RGB = 104,
+  UINT32_RGBA = 107,
+  FLOAT16_R = 76,
+  FLOAT16_RGB = 90,
+  FLOAT16_RGBA = 97,
+  FLOAT32_R = 100,
+  FLOAT32_RGB = 106,
+  FLOAT32_RGBA = 109,
+  UNORM16_D = 124,
+  FLOAT32_D = 126,
+  BC1_RGBA = 131,
+  BC1_RGB = 132,
+  BC1_RGBA_SRGB = 133,
+  BC1_RGB_SRGB = 134,
+  BC2 = 135,
+  BC2_SRGB = 136,
+  BC3 = 137,
+  BC3_SRGB = 138,
+  BC4 = 139,
+  BC4_S = 140,
+  BC5 = 141,
+  BC5_S = 142,
+  BC6H = 143,
+  BC6H_S = 144,
+  BC7 = 145,
+  BC7_SRGB = 146,
 };
 
 enum class ImageUsage : uint32_t {
@@ -297,26 +326,6 @@ inline constexpr ColorComponent operator~(ColorComponent flags) {
   return static_cast<ColorComponent>(~static_cast<uint8_t>(flags));
 }
 
-// IMPORTANT: Modification should prompt the following changes:
-// - renderer.h - DrawCommand
-// - renderer.cpp - dispatchProcessing
-// - types.h - DrawCommandIndexes
-// - main.cpp - preallocated memory
-enum class DrawOperationType : uint32_t {
-  BEGIN_RENDER_PASS = 0,
-  END_RENDER_PASS = 1,
-  IMAGE_BARRIER = 2,
-  BUFFER_BARRIER = 3,
-  BIND_PIPELINE = 4,
-  BIND_DESCRIPTOR_SETS = 5,
-  PUSH_CONSTANT = 6,
-  BIND_VERTEX_BUFFER = 7,
-  BIND_INDEX_BUFFER = 8,
-  DRAW = 9,
-  DISPATCH = 10,
-  BLIT = 11,
-};
-
 enum class ImageLayout {
   UNDEFINED,
   GENERAL,
@@ -328,12 +337,16 @@ enum class ImageLayout {
   PRESENT,
 };
 
-enum class QueueOwnership {
-  NONE,
-  GRAPHICS,
-  TRANSFER,
-  GRAPHICS_RELEASED_TO_TRANSFER,
-  TRANSFER_RELEASED_TO_GRAPHICS,
+enum class QueueOwnership : uint8_t {
+  GRAPHICS = 0,
+  TRANSFER = 1,
+};
+
+enum class QueueOwnershipState : uint8_t {
+  GRAPHICS = 0,
+  TRANSFER = 1,
+  GRAPHICS_RELEASED_TO_TRANSFER = 10,
+  TRANSFER_RELEASED_TO_GRAPHICS = 11,
 };
 
 enum class ImageTiling { OPTIMAL, LINEAR };
@@ -347,3 +360,5 @@ enum class FrontFaceWind {
   CLOCKWISE,
   COUNTER_CLOCKWISE,
 };
+
+} // namespace svet::renderer

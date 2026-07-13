@@ -1,31 +1,35 @@
 #pragma once
-#include "renderer.h"
-#include "types.h"
+#include "pipelines/frame.h"
+#include "svet/renderer/context.h"
+#include "svet/renderer/image.h"
+#include "svet/renderer/pipeline.h"
+#include "svet/renderer/render-pass.h"
 
 struct Scene;
 
 struct DeferredBasePass {
-  Image gBuffer[5];
+  svet::renderer::Image gBuffer[5];
 
-  PipelineLayout pipelineLayout;
-  Pipeline pipeline;
+  svet::renderer::PipelineLayout pipelineLayout;
+  svet::renderer::Pipeline pipeline;
 
-  RenderPass renderPass;
+  svet::renderer::RenderPass renderPass;
 };
 
 struct DeferredBasePassSpecification {
   uint32_t width;
   uint32_t height;
-  PixelFormat colorPixelFormat;
-  PixelFormat positionPixelFormat;
-  PixelFormat depthPixelFormat;
+  svet::renderer::MemoryPool targetImagePool;
+  svet::renderer::PixelFormat colorPixelFormat;
+  svet::renderer::PixelFormat positionPixelFormat;
+  svet::renderer::PixelFormat depthPixelFormat;
   const char *vertFile;
   const char *fragFile;
 };
 DeferredBasePass
-createDeferredBasePass(LContext context,
+createDeferredBasePass(svet::renderer::LContext context,
                        const DeferredBasePassSpecification &spec);
-void destroyDeferredBasePass(LContext context, DeferredBasePass &pass);
-void recordDeferredBasePass(LContext context, const DeferredBasePass &pass,
-                            const Scene &scene, DrawCommandIndexes &indexes,
-                            DrawCommand &drawCommand);
+void destroyDeferredBasePass(svet::renderer::LContext context,
+                             DeferredBasePass &pass);
+void recordDeferredBasePass(FrameData &frame, const DeferredBasePass &pass,
+                            const Scene &scene);

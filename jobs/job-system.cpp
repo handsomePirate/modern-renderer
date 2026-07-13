@@ -4,17 +4,9 @@
 
 #include <thread>
 
-void consume(LContext context, std::atomic<bool> &stop, JobRequests &jobFeed,
-             JobResults &resultOutput) {
-  BufferSpecification stagingBufferSpec{};
-  stagingBufferSpec.size = 4096 * 4096 * sizeof(float) * 4; // A single 4K image
-  stagingBufferSpec.source = BufferSource::CPU;
-  stagingBufferSpec.consumer = BufferConsumer::GPU;
-  stagingBufferSpec.frequency = BufferFrequency::STREAM;
-  stagingBufferSpec.usage = BufferUsage::TRANSFER_SRC;
-  stagingBufferSpec.initialOwnership = QueueOwnership::TRANSFER;
-  Buffer stagingBuffer = allocateBuffer(context, stagingBufferSpec);
-
+void consume(svet::renderer::LContext context, std::atomic<bool> &stop,
+             JobRequests &jobFeed, JobResults &resultOutput,
+             svet::renderer::StagingBuffer stagingBuffer) {
   while (not stop) {
     // Process all
     while (not jobFeed.is_empty()) {
@@ -27,19 +19,16 @@ void consume(LContext context, std::atomic<bool> &stop, JobRequests &jobFeed,
           // TODO: Could make this a runtime array dispatch in the future
           switch (job.type) {
           case JobType::ASSIMP_LOAD:
-            jobResultCode =
-                processAssimpLoadGLMJob((AssimpLoadJob *)jobData, context,
-                                        stagingBufferSpec, stagingBuffer);
+            jobResultCode = processAssimpLoadGLMJob((AssimpLoadJob *)jobData,
+                                                    context, stagingBuffer);
             break;
           case JobType::GPU_BUFFER_UPLOAD:
             jobResultCode = processBufferGPUUploadJob(
-                (BufferGPUUploadJob *)jobData, context, stagingBufferSpec,
-                stagingBuffer);
+                (BufferGPUUploadJob *)jobData, context, stagingBuffer);
             break;
           case JobType::GPU_IMAGE_UPLOAD:
-            jobResultCode =
-                processImageGPUUploadJob((ImageGPUUploadJob *)jobData, context,
-                                         stagingBufferSpec, stagingBuffer);
+            jobResultCode = processImageGPUUploadJob(
+                (ImageGPUUploadJob *)jobData, context, stagingBuffer);
             break;
           default:
             jobResultCode = JobResultCode::UNKNOWN_JOB_TYPE;
@@ -63,13 +52,4 @@ void consume(LContext context, std::atomic<bool> &stop, JobRequests &jobFeed,
     const std::chrono::milliseconds waitPeriod(10);
     std::this_thread::sleep_for(waitPeriod);
   }
-
-  destroyBuffer(context, stagingBuffer);
-}
-
-void produceAndProcess(
-    LContext context,
-    concurrency::spsc_ring_buffer_stack<JobRequest, 512> &jobFeed,
-    concurrency::spsc_ring_buffer_stack<JobResult, 512> &resultOutput) {
-  //
 }

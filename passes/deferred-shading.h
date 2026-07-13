@@ -1,6 +1,10 @@
 #pragma once
-#include "renderer.h"
-#include "types.h"
+#include "pipelines/frame.h"
+#include "svet/renderer/context.h"
+#include "svet/renderer/descriptor.h"
+#include "svet/renderer/image.h"
+#include "svet/renderer/memory.h"
+#include "svet/renderer/pipeline.h"
 
 #include <glm/glm.hpp>
 
@@ -16,14 +20,14 @@ struct DeferredShadingParams {
 };
 
 struct DeferredShadingPass {
-  Image target;
-  Buffer shadingParamsBuffer;
+  svet::renderer::Image target;
+  svet::renderer::Buffer shadingParamsBuffer;
 
-  DescriptorSetLayout gBufferSetLayout;
-  PipelineLayout pipelineLayout;
-  Pipeline pipeline;
+  svet::renderer::DescriptorSetLayout gBufferSetLayout;
+  svet::renderer::PipelineLayout pipelineLayout;
+  svet::renderer::Pipeline pipeline;
 
-  DescriptorSet gBufferSet;
+  svet::renderer::DescriptorSet gBufferSet;
 
   uint32_t width;
   uint32_t height;
@@ -31,20 +35,22 @@ struct DeferredShadingPass {
 };
 
 struct DeferredShadingPassSpecification {
-  Image gBuffer[5];
-  Image shadowMap;
-  DescriptorPool descriptorPool;
+  svet::renderer::Image gBuffer[5];
+  svet::renderer::Image shadowMap;
+  svet::renderer::MemoryPool uniformBufferPool;
+  svet::renderer::MemoryPool targetImagePool;
+  svet::renderer::DescriptorPool descriptorPool;
   uint32_t width;
   uint32_t height;
   uint32_t shadowMapResolution;
-  PixelFormat colorPixelFormat;
+  svet::renderer::PixelFormat colorPixelFormat;
   const char *compFile;
 };
 DeferredShadingPass
-createDeferredShadingPass(LContext context,
+createDeferredShadingPass(svet::renderer::LContext context,
                           const DeferredShadingPassSpecification &spec);
-void destroyDeferredShadingPass(LContext context, DeferredShadingPass &pass);
-void recordDeferredShadingPass(LContext context,
+void destroyDeferredShadingPass(svet::renderer::LContext context,
+                                DeferredShadingPass &pass);
+void recordDeferredShadingPass(FrameData &frame,
                                const DeferredShadingPass &pass,
-                               const Scene &scene, DrawCommandIndexes &indexes,
-                               DrawCommand &drawCommand);
+                               const Scene &scene);
