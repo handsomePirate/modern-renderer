@@ -300,6 +300,21 @@ void cmdIndirectDrawCall(DrawProcessor drawProcessor, Buffer buffer,
   }
 }
 
+void cmdIndirectDrawCall(DrawProcessor drawProcessor, Buffer buffer,
+                         uint32_t offset, Buffer countBuffer,
+                         uint32_t countBufferOffset, uint32_t maxDrawCount,
+                         uint32_t stride, bool indexed) {
+  if (indexed) {
+    vkCmdDrawIndexedIndirectCount(drawProcessor->primaryCommandBuffer,
+                                  buffer->buffer, offset, countBuffer->buffer,
+                                  countBufferOffset, maxDrawCount, stride);
+  } else {
+    vkCmdDrawIndirectCount(drawProcessor->primaryCommandBuffer, buffer->buffer,
+                           offset, countBuffer->buffer, countBufferOffset,
+                           maxDrawCount, stride);
+  }
+}
+
 void cmdDispatch(DrawProcessor drawProcessor, uint32_t groupCountX,
                  uint32_t groupCountY, uint32_t groupCountZ) {
   vkCmdDispatch(drawProcessor->primaryCommandBuffer, groupCountX, groupCountY,

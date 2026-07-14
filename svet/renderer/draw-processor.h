@@ -82,6 +82,10 @@ void cmdDrawCall(DrawProcessor drawProcessor, uint32_t elementCount,
 void cmdIndirectDrawCall(DrawProcessor drawProcessor, Buffer buffer,
                          uint32_t offset, uint32_t drawCount, uint32_t stride,
                          bool indexed);
+void cmdIndirectDrawCall(DrawProcessor drawProcessor, Buffer buffer,
+                         uint32_t offset, Buffer countBuffer,
+                         uint32_t countBufferOffset, uint32_t maxDrawCount,
+                         uint32_t stride, bool indexed);
 void cmdDispatch(DrawProcessor drawProcessor, uint32_t groupCountX,
                  uint32_t groupCountY, uint32_t groupCountZ = 1);
 void cmdBlit(DrawProcessor drawProcessor, Image from, Image to,

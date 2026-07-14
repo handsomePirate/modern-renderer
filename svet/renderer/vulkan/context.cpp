@@ -165,7 +165,7 @@ LContext init(SDL_Window *window, const RendererSpecification &spec) {
   applicationInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
   applicationInfo.pEngineName = "renderer";
   applicationInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-  applicationInfo.apiVersion = VK_API_VERSION_1_4;
+  applicationInfo.apiVersion = VK_API_VERSION_1_3;
 
   VkInstanceCreateInfo instanceInfo{};
   instanceInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -310,8 +310,7 @@ LContext init(SDL_Window *window, const RendererSpecification &spec) {
   queueInfos[1].queueCount = 1;
   queueInfos[1].pQueuePriorities = &queuePriority;
 
-  const char *deviceExtensions[] = {"VK_KHR_dynamic_rendering",
-                                    "VK_KHR_swapchain"};
+  const char *deviceExtensions[] = {"VK_KHR_swapchain"};
 
   VkPhysicalDeviceFeatures deviceFeatures{};
 
@@ -328,10 +327,16 @@ LContext init(SDL_Window *window, const RendererSpecification &spec) {
 
   VkPhysicalDeviceVulkan13Features features13{};
   features13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
-  // TODO: Check support
+  // TODO: This can be supported as an extension for Vulkan 1.2
   features13.synchronization2 = VK_TRUE;
   features13.dynamicRendering = VK_TRUE;
-  deviceInfo.pNext = &features13;
+
+  VkPhysicalDeviceVulkan12Features features12{};
+  features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+  features12.drawIndirectCount = VK_TRUE;
+  features12.pNext = &features13;
+
+  deviceInfo.pNext = &features12;
 
   result = vkCreateDevice(context->physicalDevice, &deviceInfo, nullptr,
                           &context->device);
