@@ -43,6 +43,7 @@ int main(int argc, char *argv[]) {
   auto window = SDL_CreateWindow("window", width, height, SDL_WINDOW_VULKAN);
   RendererSpecification rendererSpec{};
   rendererSpec.allowValidation = true;
+  rendererSpec.allowMeshShaders = false;
   auto context = init(window, rendererSpec);
 
   //

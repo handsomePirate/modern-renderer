@@ -8,6 +8,7 @@ using LContext = struct LContextT *;
 
 struct RendererSpecification {
   bool allowValidation;
+  bool allowMeshShaders;
 };
 LContext init(SDL_Window *window, const RendererSpecification &spec);
 void shutdown(LContext context);

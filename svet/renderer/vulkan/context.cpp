@@ -310,7 +310,7 @@ LContext init(SDL_Window *window, const RendererSpecification &spec) {
   queueInfos[1].queueCount = 1;
   queueInfos[1].pQueuePriorities = &queuePriority;
 
-  const char *deviceExtensions[] = {"VK_KHR_swapchain"};
+  const char *deviceExtensions[] = {"VK_KHR_swapchain", "VK_EXT_mesh_shader"};
 
   VkPhysicalDeviceFeatures deviceFeatures{};
 
@@ -320,7 +320,8 @@ LContext init(SDL_Window *window, const RendererSpecification &spec) {
   deviceInfo.pQueueCreateInfos = queueInfos;
   deviceInfo.pEnabledFeatures = &deviceFeatures;
   deviceInfo.ppEnabledExtensionNames = std::data(deviceExtensions);
-  deviceInfo.enabledExtensionCount = std::size(deviceExtensions);
+  deviceInfo.enabledExtensionCount =
+      std::size(deviceExtensions) - (spec.allowMeshShaders ? 0 : 1);
   // Since Vulkan 1.0, only instance-level layers are supported
   deviceInfo.ppEnabledLayerNames = nullptr;
   deviceInfo.enabledLayerCount = 0;
@@ -333,6 +334,7 @@ LContext init(SDL_Window *window, const RendererSpecification &spec) {
 
   VkPhysicalDeviceVulkan12Features features12{};
   features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+  features12.timelineSemaphore = VK_TRUE;
   features12.drawIndirectCount = VK_TRUE;
   features12.pNext = &features13;
 
